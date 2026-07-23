@@ -40,7 +40,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      metadata: read
     steps:
       - uses: actions/checkout@v4
       - name: Fail if public without a release marker
