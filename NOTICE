@@ -1,0 +1,46 @@
+NOTICE: third-party attributions for the released data
+=======================================================
+
+This deposit is a mixed-license package. Our own materials (harness code, model
+completions, scores, token counts, aggregate tables, and their arrangement) are
+released under Apache-2.0 (code; see LICENSE) and CC BY 4.0 (result data; see
+LICENSE-DATA). Third-party dataset portions carry their own licenses, listed
+below. Nothing in this deposit relicenses upstream data.
+
+Redistributed as plaintext, under the upstream license
+------------------------------------------------------
+- TruthfulQA (multiple_choice): Apache-2.0. Lin, Hilton, and Evans,
+  "TruthfulQA: Measuring How Models Mimic Human Falsehoods", ACL 2022,
+  arXiv:2109.07958. Source: github.com/sylinrl/TruthfulQA
+  (Hugging Face: truthfulqa/truthful_qa).
+- Berkeley Function Calling Leaderboard (BFCL): Apache-2.0. Patil, Mao, Yan,
+  Ji, Suresh, Stoica, and Gonzalez, "The Berkeley Function Calling Leaderboard
+  (BFCL): From Tool Use to Agentic Evaluation of Large Language Models",
+  ICML 2025. Source: gorilla.cs.berkeley.edu/leaderboard.
+
+NOT redistributed (referenced by SHA-256, or regenerated from upstream)
+----------------------------------------------------------------------
+- SQuAD v2: CC BY-SA 4.0 (share-alike). Rajpurkar, Jia, and Liang, 2018. Its
+  passages, and the qa answers derived from it, are hash-only here, to keep this
+  deposit's data uniformly CC BY 4.0 rather than propagate the share-alike term.
+  Regenerate from rajpurkar/squad_v2 at the pinned revision.
+- HotpotQA: CC BY-SA 4.0. Yang et al., 2018. Hash-only, same reason. Regenerate
+  from hotpotqa/hotpot_qa.
+- GSM8K (MIT, Copyright (c) 2021 OpenAI; see LICENSES/MIT.txt). Cobbe et al.,
+  "Training Verifiers to Solve Math Word Problems", 2021, arXiv:2110.14168.
+  Source: github.com/openai/grade-school-math (Hugging Face: openai/gsm8k). This
+  figure is from a separate full-set run, not the controls_v1 harness; only the
+  exact-match aggregate and a SHA-256 manifest are deposited. Regenerate per-item
+  from upstream and re-run the harness.
+- Paul Graham essays (RULER NIAH haystacks): no license grant; all rights
+  reserved, (c) Paul Graham. Not redistributed; scraped at generation time by
+  the RULER generator.
+- AppWorld tasks, apps, and environment: retained behind SHA-256 hashes and
+  aggregate statistics only, per AppWorld's no-plaintext terms and its dataset
+  canary. Trivedi et al., "AppWorld: A Controllable World of Apps and People for
+  Benchmarking Interactive Coding Agents", ACL 2024, arXiv:2407.18901.
+- RULER generator: Apache-2.0, NVIDIA. RULER prompts are not redistributed
+  (they embed the corpora above); regenerate with scripts/fetch_ruler.py at the
+  pinned commit. Hsieh et al., arXiv:2404.06654.
+- wonderwords / english word lists used by RULER's common-word task: MIT; not
+  redistributed (no RULER prompt text is shipped).

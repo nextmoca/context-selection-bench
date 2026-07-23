@@ -1,0 +1,23 @@
+Creative Commons Attribution 4.0 International (CC BY 4.0)
+=========================================================
+
+The benchmark RESULT DATA published in this repository (aggregate scores,
+per-item outputs, and the sha256 manifests that index them) is licensed under
+the Creative Commons Attribution 4.0 International License (CC BY 4.0).
+
+  - Human-readable summary: https://creativecommons.org/licenses/by/4.0/
+  - Full legal code:        https://creativecommons.org/licenses/by/4.0/legalcode
+
+You are free to share and adapt this result data for any purpose, provided you
+give appropriate credit, link to the license, and indicate if changes were made.
+
+SCOPE
+-----
+  - CODE in this repository is licensed under Apache-2.0 (see ./LICENSE).
+  - RESULT DATA produced by this harness is licensed under CC BY 4.0 (this file).
+  - UPSTREAM DATASETS are NOT redistributed here. Each is obtained by a
+    fetch-script and remains under its own upstream license (see the per-suite
+    notes under ./datasets/). Nothing in this repository relicenses upstream
+    data.
+
+The full CC BY 4.0 legal code accompanies the result-data release.

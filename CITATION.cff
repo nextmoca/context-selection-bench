@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this benchmark program, please cite the paper and the archived artifacts."
+title: "A Matched-Protocol Benchmark Program for Context Selection in Agentic LLM Systems"
+type: software
+authors:
+  - family-names: Kashalkar
+    given-names: Kiran
+    affiliation: "Next Moca Global, Inc."
+  - family-names: Rao
+    given-names: Swanand
+    affiliation: "Next Moca Global, Inc."
+repository-code: "https://github.com/nextmoca/context-selection-bench"
+license: Apache-2.0
+version: "1.0.0"
+doi: "10.5281/zenodo.21502503"
+date-released: "2026-07-23"
+preferred-citation:
+  type: article
+  title: "A Matched-Protocol Benchmark Program for Context Selection in Agentic LLM Systems"
+  authors:
+    - family-names: Kashalkar
+      given-names: Kiran
+    - family-names: Rao
+      given-names: Swanand
+  year: 2026

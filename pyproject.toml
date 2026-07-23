@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "context-selection-bench"
+version = "1.0.0"
+description = "Reproducible matched-protocol benchmark harness for context-selection and prompt-compression methods on public evaluation suites."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+keywords = ["benchmark", "context-selection", "prompt-compression", "llm", "ruler"]
+dependencies = [
+  "requests>=2.31",
+  "numpy>=1.24",
+  "scipy>=1.10",
+]
+
+[project.optional-dependencies]
+# Model providers for running arms end-to-end against a language model.
+gemini = ["google-genai>=0.3"]
+openai = ["openai>=1.0"]
+# The SQuAD v2 / BFCL / TruthfulQA suites load their data via HuggingFace datasets.
+qa = ["datasets>=2.14"]
+# The Compresr compression arm (commercial API).
+compresr = ["compresr>=2.5"]
+# Local compression baselines. Heavy (GPU-oriented); install only to run them.
+llmlingua2 = ["llmlingua>=0.2", "torch>=2.2"]
+cpc = [
+  "torch>=2.2",
+  "transformers==4.46.3",
+  "tiktoken>=0.7",
+  "peft>=0.11",
+  "sentencepiece>=0.2",
+  "munch>=4.0",
+  "sentence-splitter>=1.4",
+  "evaluate>=0.4",
+]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools.packages.find]
+include = ["csbench*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

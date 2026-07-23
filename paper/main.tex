@@ -1,0 +1,929 @@
+\documentclass[11pt]{article}
+
+% ==========================================================================
+% A Matched-Protocol Benchmark Program for Context Selection in Agentic LLM
+% Systems.  Venue: arXiv (cs.CL) + Zenodo.
+% ==========================================================================
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{seqsplit}
+\usepackage{graphicx}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+\usepackage[round]{natbib}
+
+\newcommand{\pp}{~pp}          % percentage points
+\newcommand{\NP}{Needlepath}
+\newcommand{\oppoint}{\texttt{np-2026-07-r1}}
+\newcommand{\wire}{\texttt{POST /v1/context/select}}
+\newcommand{\fn}[1]{{\ttfamily\seqsplit{#1}}}   % breakable monospace filename
+
+\title{A Matched-Protocol Benchmark Program for Context Selection\\ in Agentic LLM Systems}
+\author{Kiran Kashalkar \quad Swanand Rao \\ Next Moca Global, Inc.\thanks{The benchmark harness, configurations,
+seeds, and checksummed artifact manifests are released with this paper at
+\texttt{github.com/nextmoca/context-selection-bench} and archived at Zenodo,
+DOI~\texttt{10.5281/zenodo.21502503}.}}
+\date{July 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Agentic language-model systems accumulate large intermediate state (conversation history,
+tool metadata, retrieved documents, and prior results) that is often re-inserted into
+prompts wholesale, raising cost and latency and enlarging the model's distraction surface.
+Two families of remedies have emerged: \emph{selection}, which forwards a relevant subset of
+state verbatim, and \emph{compression}, which rewrites or summarizes it. Published evaluations
+are hard to compare: they use different base models, arms, and context lengths, frequently
+score with the method authors' own scorer, and seldom report negative results, standardize
+latency measurement, or close the reproducibility loop. We present a matched-protocol
+benchmark \emph{program} for a context-selection layer, using one running system (\NP{}) as the
+instrument under test. Under a single protocol (same base model, identity-gated items, one
+arm per method, official benchmark scorers, and paired statistics), we make five
+contributions. \textbf{(1)} On RULER, across five arms at two context lengths, the selection
+layer scores above every tested configuration while the pure-compression arm scores below full
+context; we report the full five-arm ordering and explicitly decline any categorical
+``selection beats compression'' claim, because a compression-family arm outscored a
+selection-family arm. \textbf{(2)} We report negative results as first-class findings: on an
+agentic tool-use benchmark the layer falls $25$ percentage points below full history while
+\emph{total} tokens rise; a summarization baseline does worse at higher cost; and
+identical-configuration reruns flip outcomes on roughly $39\%$ of tasks, motivating validation
+of agent reruns by byte-identity rather than statistical parity. \textbf{(3)} We describe a
+composition-based operating-envelope gate keyed on a relevance gap and task-signature drift,
+computed sub-millisecond in-process with no model calls, which stands down byte-identically where
+selection does not pay ($208/208$ steps on the tool-use benchmark; $89\%$ engagement on RULER
+with no statistically detectable aggregate difference from ungated selection); token-count gates
+are insufficient because the winning and losing regimes occupy the same token scale.
+\textbf{(4)} We treat reproducibility as a result: a public-harness (implementation-path)
+replication reproduced the primary RULER finding (the selection layer beats full context at
+both lengths under Holm-corrected per-length McNemar, pooled $+4.99\pp$, ${\sim}32\%$ fewer
+tokens, lowest end-to-end cost) with the system reached only through a versioned hosted
+adapter and no engine code in the harness. The extraction and rerun are ours, so the
+independence established is of the code path, not the operator; a fully independent rerun, which
+the released harness enables, remains open. We include a named commercial compression API at
+parity (a small positive delta, not significant under the primary per-length test) and a
+four-class latency-measurement methodology whose network decomposition is deliberately
+constructed to favor the remote vendor. \textbf{(5)} We define an iso-quality selection-layer benchmark and sketch a
+capacity-constrained extension with safe escalation as future work. Every number traces to a
+results document and a checksummed artifact manifest; the harness, configurations, and seeds
+are released with the paper.
+\end{abstract}
+
+% ===========================================================================
+\section{Introduction}
+\label{sec:intro}
+
+Production agent systems are not single-turn chatbots. They maintain state across planning,
+tool selection, retrieval, execution, review, and user interaction: the current request and
+task parameters, prior messages and workflow history, agent and tool definitions, database rows
+and retrieved documents, environment configuration, and prior tool results. The default
+strategy in many systems is to insert most of this state into every model prompt. This appears
+safe (the model has access to everything), but it raises token cost on every invocation,
+increases latency as prompts grow, and enlarges the surface of irrelevant detail that can
+distract generation; longer context does not guarantee higher fidelity.
+
+Two families of remedies have emerged. A \emph{selection} layer forwards a relevant subset of
+the accumulated state \emph{verbatim}, dropping the rest. A \emph{compression} layer instead
+rewrites, summarizes, or shrinks the state so that more of it fits in fewer tokens. Both are
+active areas of work, and both are typically reported by their authors on favorable surfaces.
+The difficulty for a practitioner is that the published evaluations are not comparable to one
+another: they use different base models, different competitor arms, and different context
+lengths; they frequently score with a metric or judge chosen by the method's authors rather
+than the benchmark's official scorer; they under-report negative results; they measure latency
+in incommensurable ways (a local library call against a remote API call); and they rarely close
+the reproducibility loop by releasing a harness an outsider can run to reproduce the headline.
+
+This paper contributes a \emph{benchmark program} (not a single benchmark) for evaluating
+a context-selection layer under a matched protocol. We use one running system, \NP{}
+\citep{rao2026needlepath}, as the
+instrument under test, but the object of the paper is the methodology and what it reveals, not a
+product. Under one protocol (Section~\ref{sec:protocol}), fixing the same base model, items gated by
+content hash and paired item-for-item, one arm per method run at its own operating point,
+official benchmark scorers, and paired statistics, we make five contributions:
+
+\begin{enumerate}
+  \item A matched-protocol comparison across selection and compression methods on RULER, at two
+  context lengths, with the full five-arm ordering and a deliberately narrow reading of it
+  (Section~\ref{sec:ruler}).
+  \item Negative results treated as first-class findings: an out-of-envelope regime where the
+  selection layer loses and total tokens \emph{rise}; a compression arm whose \emph{billed}
+  token count goes negative; and a run-to-run variance result that changes how agent reruns
+  should be validated (Section~\ref{sec:negative}).
+  \item A composition-based operating-envelope gate that decides when \emph{not} to act, why a
+  token-count gate cannot do this, and the open contradiction between fail-open pass-through and
+  a hard capacity cap (Section~\ref{sec:gate}).
+  \item Reproducibility as a result: a public-harness (implementation-path) replication of the
+  primary finding through a versioned hosted adapter (independence of the code path, not the
+  operator), a named commercial-compressor arm at parity (not significant under the primary
+  per-length test), and a latency measurement-class methodology (Section~\ref{sec:repro}).
+  \item A definition of an iso-quality selection-layer benchmark and a capacity-constrained
+  extension with safe escalation as future work (Section~\ref{sec:defn}).
+\end{enumerate}
+
+\paragraph{Scope and non-goals.} The instrument under test is a single system, described at the
+architecture level of its prior public technical report (Section~\ref{sec:np}). We report on two
+context lengths and make no scaling-law claim. Every arm is a distinct third-party method or a
+baseline; we make no claim against a method we did not run under the matched protocol.
+
+% ===========================================================================
+\section{Background and Related Work}
+\label{sec:background}
+
+\subsection{Selection versus compression}
+
+We distinguish two families by what they emit. A \emph{selection} method chooses a subset of the
+candidate state and forwards the chosen records unchanged; its risk is dropping a record that is
+later needed. A \emph{compression} method transforms the state into a shorter form (by
+rewriting tokens, summarizing spans, or wrapping verbose payloads behind a retrieval handle),
+and its risk is that the transformation loses or distorts evidence. The distinction is about
+the operation on kept content, not about the amount removed: a selection method that keeps a
+record keeps it byte-for-byte.
+
+\subsection{Methods evaluated}
+
+Table~\ref{tab:arms} lists the arms. All are run under the matched protocol
+(Section~\ref{sec:protocol}) at each method's own operating point; no arm is tuned to the
+benchmark. LLMLingua-2 \citep{pan2024llmlingua2} rewrites the stack into a shorter, choppier
+form. CPC \citep{liskavets2025cpc} selects verbatim at the sentence level via a $7$B GPU model.
+ACON \citep{acon2025} replaces accumulated history with its own written summary as an agent
+episode progresses. Headroom \citep{headroom} shrinks tool outputs and structured payloads while
+keeping the originals behind a retrieval tool the model can call. Compresr \citep{compresr} is a
+hosted commercial compression API. The baseline, \emph{full context}, forwards the entire stack
+unedited.
+
+We exclude three further classes of method, with reasons. LCLMs \citep{li2026lclm}, pretrained
+encoder-decoder context compressors (a small trained encoder feeding a larger decoder), require a
+custom-trained reader and are not drop-in. A second commercial compression API was evaluated and
+excluded before any spend on the basis of its terms of service (a competitive-benchmarking
+restriction, a naming/pre-approval requirement, and quote-only pricing that could not be
+independently verified); that vendor is left deliberately unnamed throughout, no unverified pricing
+is cited, and the vendor was not contacted. And we exclude the industrial context-engineering system
+of \citet{lodha2026lcba} (\emph{Less Context, Better Agents}), because it is not externally
+reproducible: evaluation requires a live proprietary enterprise environment and internal tooling, and
+neither code, tools, nor data are publicly released (the paper's reproducibility appendix documents
+internal replication only).
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Arm & Family & How it prepares the prompt \\
+\midrule
+full context   & baseline    & forwards the entire stack, unedited \\
+\NP{}          & selection   & selects relevant records, forwarded verbatim; fails open when unsure \\
+CPC            & selection   & selects verbatim sentences via a $7$B GPU model \\
+LLMLingua-2    & compression & rewrites the whole stack shorter \\
+ACON           & compression & replaces history with a model-written summary (agentic) \\
+Headroom       & compression & shrinks payloads; originals behind a retrieval tool \\
+Compresr       & compression & hosted commercial rewriting API (default operating point) \\
+\bottomrule
+\end{tabular}
+\caption{Arms under the matched protocol. ``Family'' labels the operation on kept content
+(select verbatim vs.\ transform); it is not a claim of ranking. As Section~\ref{sec:ruler}
+shows, a compression-family arm outscored a selection-family arm.}
+\label{tab:arms}
+\end{table}
+
+\subsection{Broader context}
+
+The methods evaluated here sit within larger literatures that we survey briefly. \emph{Prompt
+compression} spans token-level pruning and abstractive summarization of context. \emph{Retrieval and
+reranking} select evidence by learned or lexical similarity rather than by a task signature.
+\emph{Long-context evaluation} studies how models use (or fail to use) information placed deep
+in a long prompt, the phenomenon RULER is built to probe. \emph{Agent-memory} systems manage what an
+agent carries across the steps of an episode, the regime in which our out-of-envelope result
+(Section~\ref{sec:appworld}) arises. This paper's contribution is a matched-protocol comparison
+across representative methods from these families, not a taxonomy of them.
+
+\subsection{The instrument under test}
+\label{sec:np}
+
+\NP{} is a context-selection layer whose method, \emph{selective state compression}, has been
+described previously at the architecture level \citep{rao2026needlepath}.\footnote{The published
+report \citep{rao2026needlepath} evaluated an earlier configuration on a
+$100$-task live benchmark. Its headline figures (final-path input-token reduction $27.4\%$;
+usefulness preserved or improved in $83\%$ of cases) come from a single base model scored by a
+pairwise LLM judge rather than an official scorer, and are not carried
+forward here. Separately, that report's wrapper-suite figures are superseded by the
+official-scorer, matched-protocol results reported in this paper.} It proceeds in five stages: it
+builds a \emph{task signature} of the current request; it \emph{scores} each candidate state
+record against that signature; it \emph{selects and formats} the chosen records; it applies a
+\emph{risk-aware fallback} that fails open to the baseline prompt; and it exposes an
+\emph{output-contract} layer. Throughout this paper the layer runs so that kept records are
+emitted \emph{verbatim} (byte-for-byte); all token reduction comes from dropping whole records,
+never from rewriting kept ones.
+
+% ===========================================================================
+\section{Evaluation Protocol}
+\label{sec:protocol}
+
+\paragraph{Matched protocol.} Every comparison holds the following fixed. \emph{Same base model:}
+one model (\texttt{gemini-3.1-pro-preview}) at temperature $0$ with identical decoding across
+every arm, confirmed callable immediately before spend. \emph{Same items:} each arm sees the
+same benchmark items, gated by SHA-256 content hashes and paired item-for-item. \emph{One arm,
+one method:} each method runs at its own published or default operating point; no arm is tuned to
+the benchmark. \emph{Official scorers:} accuracy is computed by each benchmark's own official
+scorer, never one of ours. \emph{Paired statistics:} significance is assessed with McNemar's
+test on paired binarized correctness \citep{mcnemar1947}, and confidence intervals with a paired
+$10{,}000$-resample bootstrap (seed $42$) on the score delta.
+
+\paragraph{Item pairing.} Some official exports contain legitimately repeated examples whose
+index field is not unique within a task. We therefore pair items by row \emph{position} rather
+than by index, and verify that every task/length cell carries the same number of rows with an
+identical (index, position) sequence across arms, so that each comparison is genuinely paired
+item-for-item (Appendix~\ref{app:stats}).
+
+\paragraph{Latency measurement classes.} Latency figures are meaningless across placements unless
+they are labeled. We stamp every latency figure with exactly one of the four measurement classes
+below and never place figures of different classes in the same row without their labels:
+\begin{itemize}
+  \item \texttt{in\_process}: pure local compute on our hardware, no network;
+  \item \texttt{hosted\_adapter\_localhost}: a request to a service we run on \texttt{127.0.0.1}
+  (loopback, no wide-area network);
+  \item \texttt{remote\_api\_e2e}: wall-clock round trip to a third-party API over the public
+  internet, transport included;
+  \item \texttt{remote\_api\_network\_adjusted}: \texttt{remote\_api\_e2e} minus the median
+  TCP\,+\,TLS transport baseline to that host.
+\end{itemize}
+A fifth label, \texttt{vendor\_reported\_server}, marks a figure a third-party vendor reports from
+its own server-side clock; it is a provenance tag for an externally-supplied number, not a
+measurement class we control, and is never compared directly against our classes. This discipline
+lets a reviewer verify that we did not let a local placement flatter one arm nor a remote placement
+penalize another (Section~\ref{sec:latency}).
+
+\paragraph{Provenance ladder and artifacts.} We rank evidence by how much of the pipeline an
+outsider can reproduce: fully third-party data (strongest for data provenance); a third-party
+generator instantiated with our seed; an in-repository reproducible harness; and, strongest for
+\emph{reproducibility of the system under test}, an extracted public harness that reaches the
+system only through a hosted adapter (Section~\ref{sec:repro}); the independence this establishes
+is of the code path, not the operator. Every number in this
+paper traces to a results document and a SHA-256 artifact manifest (Appendix~\ref{app:provenance});
+per-item outputs live in object storage under those manifests, and the harness, pinned
+configurations, and seeds are released with the paper.
+
+% ===========================================================================
+\section{Matched-Protocol Comparison on RULER}
+\label{sec:ruler}
+
+\paragraph{Setup.} RULER \citep{hsieh2024ruler} generates long-context ``needle-in-a-haystack''
+tasks over synthetic haystacks. We run $13$ tasks at each of two context lengths ($8$K and $16$K)
+with $100$ items per task/length cell, using the official generator seeded by us and the official
+scorer. One task, \texttt{niah\_single\_3}, is a dead-zero across all five arms ($0.0\%$ at both
+lengths) due to a task-construction artifact (truncated answers) independent of method; we
+exclude it from the headline $12$-task average and report the $13$-task average in
+Appendix~\ref{app:ruler}.
+
+\paragraph{Five-arm ordering.} Table~\ref{tab:ruler-scores} gives the $12$-task average score of
+each arm. The ordering is the same at both lengths:
+\[
+\text{\NP{}} \;>\; \text{full context} \;>\; \text{Headroom} \;>\; \text{CPC} \;>\; \text{LLMLingua-2}.
+\]
+\NP{} is above every tested configuration at both lengths, and the pure-compression arm
+(LLMLingua-2) is below full context at both lengths. We state this exactly and no more strongly.
+In particular, we do \emph{not} claim that selection beats compression as a category: within the
+same five-arm data, Headroom (a compression-family arm) outscored CPC (a selection-family arm) at
+both lengths (Table~\ref{tab:ruler-pairwise}). The headline is about configurations, not families.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Length & \NP{} & full context & Headroom & CPC & LLMLingua-2 \\
+\midrule
+$8$K  & \textbf{54.0} & 48.2 & 42.5 & 38.0 & 33.0 \\
+$16$K & \textbf{49.2} & 44.5 & 41.8 & 40.6 & 32.1 \\
+\bottomrule
+\end{tabular}
+\caption{RULER accuracy (\%), $12$-task average (excluding \texttt{niah\_single\_3}), official
+scorer, $100$ items per task/length cell. Ordering identical at both lengths.}
+\label{tab:ruler-scores}
+\end{table}
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lccl@{}}
+\toprule
+Comparison & $\Delta$ @ $8$K & $\Delta$ @ $16$K & Significant cells (McNemar, $p<0.05$) \\
+\midrule
+\NP{} $-$ full context     & $+5.8\pp$  & $+4.7\pp$  & $4/26$, all favor \NP{} \\
+\NP{} $-$ CPC              & $+15.9\pp$ & $+8.6\pp$  & $10/26$: $9$ favor \NP{}, $1$ favors CPC \\
+\NP{} $-$ LLMLingua-2      & $+21.0\pp$ & $+17.2\pp$ & $12/26$, all favor \NP{} \\
+Headroom $-$ CPC           & $+4.5\pp$  & $+1.2\pp$  & $12/26$: $8$ favor Headroom, $4$ favor CPC \\
+Headroom $-$ full context  & $-5.6\pp$  & $-2.6\pp$  & $8/26$: $5$ favor full, $3$ favor Headroom \\
+\bottomrule
+\end{tabular}
+\caption{RULER pairwise deltas (percentage points, $12$-task average) and cell-level significance.
+Averages are directional; the significance column reports where paired McNemar clears $p<0.05$.
+Deltas are computed by the paired-statistics module on unrounded per-item scores and may differ by
+${\sim}0.1\pp$ from differences of the rounded per-arm averages in Table~\ref{tab:ruler-scores}. The
+significance denominator ($26$) counts all $13\times2$ task/length cells; the two excluded
+\texttt{niah\_single\_3} cells are dead-zero across arms and never significant. The cell-level
+McNemar counts are exploratory and uncorrected for multiple comparisons; this run reports no
+pooled paired test, so the confirmatory aggregate paired test for the headline
+\NP{}-vs-full-context comparison is the replication's pooled McNemar
+(Section~\ref{sec:replication}). Headroom $>$ CPC is the reason we make no categorical
+selection-vs-compression claim.}
+\label{tab:ruler-pairwise}
+\end{table}
+
+\paragraph{Reading the deltas.} Following the matched-protocol discipline, we treat average deltas
+as \emph{directional} and reserve significance for cell-level McNemar. \NP{} versus full context
+is $+5.8/+4.7\pp$ on average, with $4$ of $26$ cells individually significant (none against);
+removing distractor context helped answers slightly on average without a cell-by-cell guarantee.
+\NP{} versus LLMLingua-2 is $+21.0/+17.2\pp$ with $12/26$ cells significant and none against, and
+LLMLingua-2 averages below full context at both lengths: rewriting the haystack lost material.
+\NP{} versus CPC is $+15.9/+8.6\pp$ with $9$ of $10$ significant cells favoring \NP{}. These
+cell-level counts are exploratory and uncorrected for multiplicity; we treat the pooled
+replication test (Section~\ref{sec:replication}) as the confirmatory aggregate for the headline
+comparison. Including the artifact task \texttt{niah\_single\_3}, the $13$-task
+\NP{}-vs-full-context deltas are $+5.3/+4.4\pp$ (versus $+5.8/+4.7\pp$ at $12$ tasks); the ordering
+and direction are unchanged (Appendix~\ref{app:ruler}).
+
+\paragraph{Latency and cost.} The two selection and compression steps differ by orders of
+magnitude in preparation cost. Table~\ref{tab:ruler-latency} reports per-item preparation latency
+in the \texttt{in\_process} class. \NP{}'s selection is a sub-$15$\,ms CPU operation, roughly
+$400\times$ faster than CPC's GPU compression and needing no GPU. On tokens, \NP{} reduces the
+\emph{full prompt} by $23.1\%$ at $8$K and $37.3\%$ at $16$K (we report full-prompt reduction,
+the share of the billed prompt removed, not the larger internal state-pool figure).
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lccl@{}}
+\toprule
+Arm & $8$K & $16$K & Hardware / note \\
+\midrule
+\NP{}        & $8.5$\,ms & $14.5$\,ms & CPU; selection step only \\
+Headroom     & $1.13$\,s & $2.16$\,s  & CPU; bimodal (worst item $7.3$\,s) \\
+CPC          & $3.24$\,s & $6.93$\,s  & A10G GPU \\
+LLMLingua-2  & $12.6$\,s & $32.4$\,s  & CPU \\
+\bottomrule
+\end{tabular}
+\caption{Per-item preparation latency, \texttt{in\_process} class (local compute, no network),
+excluding the downstream model call. \NP{}'s $8.5$--$14.5$\,ms is the \texttt{in\_process}
+reference figure used elsewhere in this paper.}
+\label{tab:ruler-latency}
+\end{table}
+
+% ===========================================================================
+\section{Negative Results as First-Class Findings}
+\label{sec:negative}
+
+The credibility of a benchmark program rests on what it reports when the method loses. This
+section reports three negative findings in full.
+
+\subsection{An out-of-envelope regime: agentic tool use}
+\label{sec:appworld}
+
+We run AppWorld \citep{trivedi2024appworld}, an agentic tool-use benchmark with a third-party
+environment, tasks, and official scorer, on a seeded $N{=}140$ subsample of the
+\texttt{test\_normal} split with three arms: full history, \NP{}, and ACON (agentic
+summarization). Results are in Table~\ref{tab:appworld}. \NP{} does \emph{not} preserve task
+success: it scores $-25.0\pp$ below full history ($71.4$ vs.\ $96.4$; McNemar $p{=}2.28\times
+10^{-8}$), and even though it cuts \emph{peak} context by $22.7\%$, the \emph{total} tokens spent
+across the episode \emph{rise} by $12.3\%$, because trimming what fits in any single call
+lengthens the trajectory. ACON loses harder ($-30.0\pp$) and pays a compression-model bill on top;
+\NP{} beats ACON on economics (a significant $-\$0.0389$ per episode) but only directionally on
+success ($+5.0\pp$, McNemar $p{=}0.19$, not significant). Neither method matches the uncompressed
+baseline in this regime.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Arm & Task success (\%) & vs.\ full & Peak tokens & Total tokens \\
+\midrule
+full history & 96.4 & (ref.) & $11{,}682$ & $136{,}137$ \\
+\NP{}        & 71.4 & $-25.0\pp$ ($p{=}2.3\times10^{-8}$) & $9{,}031$ ($-22.7\%$) & $152{,}846$ ($+12.3\%$) \\
+ACON         & 66.4 & $-30.0\pp$ ($p{=}6.4\times10^{-10}$) & $8{,}235$ & $161{,}569$ \\
+\bottomrule
+\end{tabular}
+\caption{AppWorld \texttt{test\_normal}, $N{=}140$ (seed $42$), official scorer,
+\texttt{gemini-3.1-pro-preview}. Total-token increase is paired-bootstrap significant (CI excludes
+zero). Below the pressure envelope, no preparation method pays.}
+\label{tab:appworld}
+\end{table}
+
+The cause is architectural, not a bug. \NP{} scores relevance against a task signature built from
+the current step, which assumes a \emph{stable query}: true in retrieval and haystack regimes,
+false in a ReAct loop where the information the agent will need is not predictable from the current
+step. Two observations localize this. First, damage tracks engagement exactly: the $23$ of $140$
+episodes where \NP{} never engaged succeeded $23/23$ ($100\%$), identical to baseline, and all $36$
+discordant losses were engaged episodes. Second, failures came from dropping the \emph{wrong}
+records, not too many (failed episodes dropped \emph{fewer} records than passed ones). The
+fail-open guarantee did not help, because it is an engine-level guarantee that fires when
+selection throws, not a relevance-level oracle: a selection that returns successfully while
+dropping a later-needed record is indistinguishable from a perfect one. We therefore declare
+AppWorld out of envelope for the selection thesis as configured, and do not cite it as evidence
+for or against the approach on agentic tool use without a run designed to reach the pressure
+regime first. Section~\ref{sec:gate} turns this diagnosis into scoped behavior.
+
+\subsection{When a compression arm's billed tokens go negative}
+\label{sec:headroom-negative}
+
+Headroom's stated value proposition is ``$60$--$95\%$ fewer tokens, same answers'' by shrinking
+payloads and keeping originals behind a retrieval tool. We report its token economics on a raw,
+\emph{uncached} basis: a deployment with prompt caching would see a real marginal cost somewhere
+between the content and billed bases below, so the negative billed figure is the correct number
+absent a caching claim this run does not test, not an assertion that caching does not exist. On
+RULER, and on that basis, the value proposition fails on two counts. \emph{Gross} reduction is
+$25.3\%$ ($8$K) and $26.5\%$ ($16$K), nowhere near the advertised range, and only the two
+pure-filler tasks reach it. More importantly, the retrieval round-trips add tokens back: on a
+\emph{content} basis the net reduction is ${\sim}8.5\%$, and on a \emph{billed} basis (counting
+the re-sent conversation on each retrieval round) the net is \emph{negative} ($-2.9\%$ at $8$K,
+$-1.6\%$ at $16$K). The compressed-plus-retrieval round trip bills more total input than sending
+the full prompt once, while accuracy is $-5.6/-2.6\pp$ below full context. The ``same answers''
+claim does not hold on this surface.
+
+\subsection{Run-to-run variance, and validating reruns by identity}
+\label{sec:variance}
+
+A probe of a proposed recovery mechanism surfaced a property of the agentic benchmark itself: on
+AppWorld, identical-configuration reruns flip a task between pass and fail roughly $39\%$ of the
+time. This has a methodological consequence that we adopt throughout: an agentic rerun cannot be
+validated by comparing success rates across reruns, because that comparison is confounded by
+variance and unfalsifiable at affordable $N$. Where we need to prove that a change is safe, we
+prove it by \emph{byte-identity} (that what the agent receives is character-for-character what
+it would have received otherwise), which is a structural property that holds regardless of the
+model's run-to-run nondeterminism. Section~\ref{sec:gate} uses exactly this: the operating-envelope
+gate is validated by showing its stand-down is byte-identical to full history, not by rerunning and
+comparing dice rolls.
+
+% ===========================================================================
+\section{A Composition-Based Operating-Envelope Gate}
+\label{sec:gate}
+
+The AppWorld result (Section~\ref{sec:appworld}) is not that selection is wrong but that it has an
+operating envelope: it pays where the context is junk-heavy and hurts where every record may be
+needed and the query moves each step. A production layer therefore needs to decide \emph{when not
+to act}. We describe such a gate at the architecture level of the system's technical report
+\citep{rao2026needlepath}.
+
+\paragraph{Why a token-count gate cannot do it.} The winning regime (RULER) and the losing regime
+(AppWorld) occupy the \emph{same} absolute token scale, roughly $8$--$16$K. Any threshold on
+token count that engages on RULER therefore also engages on AppWorld, and vice versa. Separating
+the regimes requires a signal about the \emph{composition} of the context, not its size.
+
+\paragraph{The two signals.} The gate keys on two composition signals, each computed from
+statistics the selector already produces, with zero model calls and no network in the selector
+call graph: a \emph{relevance gap} (the shape and separation of the relevance-score
+distribution over candidate records) and \emph{task-signature drift} (the step-to-step
+change in the task signature). In a haystack regime, a few records score far above a flat tail (a
+large gap) and the query is stable (low drift), and the gate engages; in a ReAct regime, scores
+are flatter and the signature moves each step, and the gate stands down. The gate adds
+${\sim}0.83$\,ms per step in steady state ($1.93$\,ms including cold start), in the
+\texttt{in\_process} class.
+
+\paragraph{Stand-down is byte-identical.} When the gate stands down, the agent receives full
+history \emph{byte-for-byte}, through a shared fallback code path; this is a structural guarantee,
+not a statistical one, so ``stand-down cannot hurt'' is a logical consequence rather than a
+measured claim. On an AppWorld gate-behavior run with the gate acting, all $208$ of $208$ optimizer
+steps stood down ($100\%$), byte-identically. On RULER, the gate engages on $89.0\%$ of items
+($90.5\%$ at $8$K, $87.6\%$ at $16$K), and the gate-vs-selection score delta shows no statistically
+detectable aggregate difference: its $95\%$ CI straddles zero at both lengths and overall
+($+0.0021$ overall, CI $[-0.0014,+0.0059]$), with $156/156$ live selections identical to the
+reference (Table~\ref{tab:gate}). We disclose one regressing cell:
+\texttt{niah\_multivalue} at $16$K genuinely loses $-0.0775$ (CI $[-0.100,-0.055]$) where the
+ungated arm was winning; it washes out in the aggregate but is a real cost of conservative
+calibration, reported rather than buried. In production the gate's default is a shadow mode that
+computes and logs its decision without changing behavior: a configuration flip, not new
+plumbing. This run measures gate \emph{behavior} (stand-down rate, signals, and the
+byte-identity of the stand-down), not post-gate task success: we deliberately did not re-estimate
+task success after gating, because the run-to-run variance of Section~\ref{sec:variance}
+(${\sim}39\%$ task flips) makes that measurement uninformative, and the byte-identity argument
+replaces it. We also state the cost plainly: in the stand-down regime the layer provides zero token
+reduction: it is a fixed-cost pass-through, and that is the designed behavior.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Benchmark & Gate behavior & Gate vs.\ ungated selection \\
+\midrule
+AppWorld & $208/208$ steps stand down, byte-identical & structural (shared fallback path) \\
+RULER    & engages $89.0\%$ ($90.5\%/87.6\%$) & gate$-$selection CI straddles $0$; $156/156$ identical \\
+\bottomrule
+\end{tabular}
+\caption{Operating-envelope gate. Stand-down safety on AppWorld is structural (byte-identity); on
+RULER the gate$-$selection difference is not statistically detectable (CI straddles zero at both
+lengths). One disclosed regressing cell (\texttt{niah\_multivalue} @ $16$K).}
+\label{tab:gate}
+\end{table}
+
+\paragraph{Discussion: the capacity-cap contradiction.} Fail-open pass-through presumes that full
+context \emph{fits} the downstream call. Under a hard capacity cap it does not, and standing down
+to full context is not an available behavior. The layer today has exactly two behaviors (select
+and stand down), and this regime needs a third, \emph{escalate}: a declaration that no safe
+subset fits the budget. Escalation must be \emph{additive}, never a cap on the load-bearing
+pass-through path that underwrites the byte-identity guarantee. It is currently a roadmap item,
+planned and not currently available; we return to it as future work (Section~\ref{sec:defn}) and
+cite it as the reason the present gate is a two-behavior device.
+
+% ===========================================================================
+\section{Reproducibility as a Result, and Latency Measurement Classes}
+\label{sec:repro}
+
+\subsection{Replication through an extracted public harness}
+\label{sec:replication}
+
+The strongest thing a benchmark can say about a \emph{system} is that its result survives new
+machinery. We extracted the RULER harness into a standalone public repository (\texttt{csbench})
+and re-ran a three-arm RULER surface it had never seen, with \NP{} reached \emph{only} over HTTP
+through a hosted adapter (\wire{}, versioned operating point \oppoint{}). No engine code runs in
+the public harness; it sees only a neutral request/response wire contract. This is simultaneously a
+benchmark result and an end-to-end validation that the extraction preserves matched-protocol
+fidelity.
+
+We call this a \emph{public-harness}, or \emph{implementation-path}, replication, and are precise
+about its scope. The extraction and the rerun were both performed by us; the independence it
+establishes is of the code path (no engine code runs in the harness, and the system is reached
+only through the versioned adapter), not of the operator. A fully independent replication by an
+unaffiliated party remains future work; we release the harness and the adapter's wire contract
+precisely so that anyone can perform it, and we invite exactly that.
+
+By the program's primary test (two co-primary per-length McNemar tests on paired binarized
+correctness, Holm-corrected at family $\alpha{=}0.05$), \NP{} beats full context at both lengths
+($+4.64\pp$, $p{=}0.014$ at $8$K; $+5.33\pp$, $p{=}0.003$ at $16$K; both significant after Holm).
+We do not claim preregistration: McNemar on binarized correctness has been the program's standing
+primary test since the RULER protocol was fixed (2026-07-07, before this run), and binarizing at
+the official threshold (RULER score $\ge 1.0$) mirrors the benchmark's own scorer. As secondary,
+descriptive statistics, the pooled McNemar is $p{=}0.0001$ and the paired-bootstrap $95\%$ CI on
+the pooled accuracy delta is $+4.99\pp$ $[+3.66,+6.32]$; our stated sensitivity analysis (a
+paired bootstrap on the continuous, unbinarized scores) gives $+2.50\pp$ $[+1.27,+3.73]$, the
+same direction. \NP{} cuts average input tokens ${\sim}32\%$ ($11{,}784 \to 7{,}977$ per item);
+this holds \emph{despite} a $40\%$ fallback rate, since fallback items save zero tokens and are
+scored identically to full context, so the lift comes entirely from the engaged selections. \NP{}
+is also the cheapest arm end-to-end (Table~\ref{tab:replication}), and its selection latency over
+the adapter is reported in Section~\ref{sec:latency}. The result lands inside the original
+$+5.8/+4.7\pp$ band from Section~\ref{sec:ruler}: the primary finding survives a fresh day, a new
+harness, and the customer-facing HTTP path.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Arm & $8$K: acc.\ $\Delta$ ($p$) & $16$K: acc.\ $\Delta$ ($p$) & Holm @ $0.05$ & Tokens / cost \\
+\midrule
+\NP{}    & $+4.64\pp$ ($0.014$) & $+5.33\pp$ ($0.003$) & both significant & $-32\%$ / \$15.67 \\
+Compresr & $+1.89\pp$ ($0.101$) & $+1.02\pp$ ($0.871$) & neither          & $-22\%$ / \$20.70 \\
+full     & (ref.)               & (ref.)               & (ref.)           & (ref.) / \$24.53 \\
+\bottomrule
+\end{tabular}
+\caption{Public-harness replication ($N{=}2{,}600$), \NP{} reached only through the hosted adapter
+(\oppoint{}). \emph{Primary test:} two co-primary per-length McNemar tests on paired binarized
+correctness, Holm-corrected at family $\alpha{=}0.05$ (\NP{} significant at both lengths; Compresr
+at neither). \emph{Secondary/descriptive:} pooled McNemar (\NP{} $p{=}0.0001$; Compresr
+$p{=}0.193$) and the paired-bootstrap $95\%$ CI on the pooled accuracy delta (\NP{} $+4.99\pp$
+$[+3.66,+6.32]$; Compresr $+1.45\pp$ $[+0.09,+2.82]$). \emph{Sensitivity:} paired bootstrap on
+continuous scores (\NP{} $+2.50\pp$ $[+1.27,+3.73]$; Compresr $+0.88\pp$ $[-0.38,+2.12]$). \NP{} is
+the only arm that improves accuracy and reduces tokens with support from the primary test.}
+\label{tab:replication}
+\end{table}
+
+\subsection{A commercial-compressor arm, read honestly}
+\label{sec:compresr}
+
+The same run included Compresr, a hosted commercial compression API, at its default operating point
+with no tuning. Its result is parity to slightly positive, and not statistically significant under
+the program's primary test. We are explicit about the test hierarchy, because the two statistics
+can diverge and a reader must not think the test was chosen after seeing the answer. The primary
+test is the standing program convention (two co-primary per-length McNemar tests on paired
+binarized correctness, Holm-corrected), and Compresr clears it at neither length ($8$K
+$p{=}0.101$, $16$K $p{=}0.871$; pooled $p{=}0.193$, secondary). Descriptively, its pooled accuracy
+delta is $+1.45\pp$ with a bootstrap CI $[+0.09,+2.82]$ that marginally excludes zero; the
+continuous-score sensitivity analysis gives $+0.88\pp$ $[-0.38,+2.12]$, straddling zero. We
+therefore characterize the arm as parity to slightly positive, not statistically significant under
+the primary test, at ${\sim}22\%$ fewer tokens, the best showing of any compression-family arm
+in the program, and still without a statistically supported lift. \NP{} is the only arm that
+improves accuracy and reduces tokens with support from the primary test; no arm ties \NP{}. We
+never cite the Compresr figure beside the vendor's marketing without this label. Compresr is
+excluded from any headline speed claim, for the reasons in Section~\ref{sec:latency}.
+
+\subsection{Latency, decomposed into measurement classes}
+\label{sec:latency}
+
+Placing an in-process local method next to a remote API in an unlabeled latency table would be
+meaningless or misleading. We therefore decompose Compresr's latency using the four classes of
+Section~\ref{sec:protocol} and a network model built to \emph{favor the vendor}, so the
+decomposition cannot be accused of inflating a remote competitor's latency
+(Table~\ref{tab:latency}). We measure, in the \texttt{remote\_api\_e2e} class, a cold TCP\,+\,TLS
+transport baseline (median $23.1$\,ms over $50$ cold sockets) and a warmed service floor (median
+$98.8$\,ms), whose \texttt{remote\_api\_network\_adjusted} value is $75.6$\,ms (each network
+adjustment is computed on unrounded medians, so displayed differences may round to within $0.1$\,ms).
+On the RULER run, Compresr's end-to-end median is $252/431$\,ms ($8$K/$16$K); subtracting the full
+transport baseline gives a network-adjusted $229/408$\,ms; the vendor's own server clock reports
+$121/255$\,ms.
+
+The adjustment is deliberately vendor-favoring. Because it subtracts the \emph{full} cold handshake
+from \emph{every} item (more transport than a keep-alive'd client actually pays per item), it
+attributes \emph{less} latency to the service than is really there, and it still leaves payload
+transfer inside the figure. It is thus a \emph{lower} bound on the service-side-plus-payload time,
+not an upper bound: over-subtracting the handshake can only shrink the figure and flatter the
+vendor. That this lower bound still lands \emph{above} the vendor's own server clock ($229$ vs.\
+$121$\,ms at $8$K, $408$ vs.\ $255$\,ms at $16$K) is consistent with it containing payload transfer
+the vendor's internal timer excludes.
+
+\NP{}'s own path in this run is \texttt{hosted\_adapter\_localhost}: the median per-item adapter
+round trip (in-process selection plus loopback transport) is $52.2$\,ms at $8$K and $77.1$\,ms at
+$16$K, with a well-behaved distribution and no multi-second retry tail. The adapter's server-side
+selection timer alone (\texttt{in\_process}) is $9.6$/$10.9$\,ms, consistent with the
+$8.5$--$14.5$\,ms measured directly on the RULER run (Section~\ref{sec:ruler}); the remainder is
+loopback transport, not compute. All per-item figures
+are medians, because rate-limit backoff at free-tier concurrency (the arm ran at $\le 2$ in-flight
+requests) injects multi-second retry sleeps into a minority of items ($146/1300$ at $8$K,
+$172/1300$ at $16$K; $p90 \approx 60$\,s, the retry interval); the median is robust to these, the
+mean and $p90$ are not. Compresr is excluded from any headline speed claim regardless.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Figure & Class & Median ($8$K / $16$K) \\
+\midrule
+transport baseline (cold handshake) & \texttt{remote\_api\_e2e} & $23.1$\,ms \\
+Compresr, per item                  & \texttt{remote\_api\_e2e} & $252$ / $431$\,ms \\
+Compresr, per item                  & \texttt{remote\_api\_network\_adjusted} & $229$ / $408$\,ms \\
+Compresr, vendor's own server clock & \texttt{vendor\_reported\_server} & $121$ / $255$\,ms \\
+\NP{} selection (RULER run)         & \texttt{in\_process} & $8.5$ / $14.5$\,ms \\
+\NP{} adapter round trip (replication) & \texttt{hosted\_adapter\_localhost} & $52.2$ / $77.1$\,ms \\
+\NP{} engine timer (replication)    & \texttt{in\_process} & $9.6$ / $10.9$\,ms \\
+\bottomrule
+\end{tabular}
+\caption{Latency decomposition. Cross-class figures are never compared without their labels. \NP{}'s
+$8.5$--$14.5$\,ms is \texttt{in\_process}, measured on the RULER run (Section~\ref{sec:ruler}); in
+the replication run \NP{}'s adapter round trip is \texttt{hosted\_adapter\_localhost}
+($52.2$/$77.1$\,ms), of which the engine's own selection compute is $9.6$/$10.9$\,ms
+(\texttt{in\_process}) and the remainder is loopback transport. \texttt{vendor\_reported\_server} is
+the vendor's self-reported figure, not one of our measurement classes. A hosted production
+deployment adds wide-area transit and would be measured in the \texttt{remote\_api\_*} classes,
+the same instrument as the vendor.}
+\label{tab:latency}
+\end{table}
+
+\paragraph{Symmetry.} The point of the decomposition is symmetry: our own hosted deployment is
+judged by the same instrument as the vendor. In this run \NP{}'s path is
+\texttt{hosted\_adapter\_localhost}; the local compressors it is usually shown against are
+\texttt{in\_process}; Compresr is the only arm in the \texttt{remote\_api\_*} classes. When \NP{}
+is deployed as a hosted service it will be measured in those same remote classes, network transit
+included.
+
+% ===========================================================================
+\section{Defining an Iso-Quality Selection-Layer Benchmark}
+\label{sec:defn}
+
+\subsection{Iso-quality selection}
+
+The program above suggests a definition. An \emph{iso-quality selection-layer benchmark} holds
+answer quality fixed (via an official scorer, matched arms, and paired statistics) and
+measures token, latency, and cost economics at equal-or-better quality, with \emph{engage-versus-
+stand-down} as a first-class axis rather than an implementation detail. The clean-desk controls in
+this program show why the stand-down axis matters: on GSM8K \citep{cobbe2021gsm8k}, a single tidy
+page with nothing to remove, the layer is neutral ($+0.18\pp$, CI spanning zero)\footnote{The GSM8K
+figure comes from a separate full-set run over all $1319$ test items, not from the public
+\fn{controls\_v1} harness; per-budget \NP{}-minus-full exact-match deltas range from $-0.15$ to
+$+0.38\pp$. It is deposited hash-only (aggregate plus SHA-256 manifest) and is regenerable with the
+released harness.}; on TruthfulQA
+\citep{lin2022truthfulqa} it is a byte-identical no-op ($0.78$ on all three arms, $0$ flipped
+answers, McNemar $p{=}1.0$, $100\%$ stand-down). ``Do nothing, correctly'' is a required, testable
+behavior, and a benchmark that only rewards trimming would miss it. Document-QA and tool-calling
+controls (SQuAD~v2 \citep{rajpurkar2018squad2}, BFCL \citep{bfcl2024}) similarly test that needed
+evidence and rigid schemas survive selection. On a reproducible re-run there is no statistically
+detectable difference from full context: BFCL accuracy $-1\pp$ (McNemar $p{=}1.0$) and SQuAD~v2
+$\Delta$F1 between $-0.0075$ and $-0.0112$ (paired-bootstrap CIs straddling zero). These are
+within-run observations that the needed evidence and schemas survive selection, not claims about
+absolute quality; the gate stood down on all items in these controls, so they show no detectable
+regression rather than repair under stress.
+
+\subsection{A capacity-constrained extension with safe escalation (future work)}
+
+The capacity-cap contradiction of Section~\ref{sec:gate} defines the natural next benchmark, which
+we sketch here as a design and do not run or claim. In a \emph{capacity-constrained evidence
+selection} task, the full context does not fit the budget, so standing down is unavailable and a
+correct system must sometimes \emph{escalate} rather than answer. Two budget contracts follow: a
+soft budget, where overflow is permitted and its cost measured, and a hard budget, where
+non-reducible cases must escalate and a silent truncation or a confident-but-insufficient answer is
+a failure. Cases fall in three classes (reducible, boundary, and non-reducible), and the third
+is what makes it a real test, because no subset within budget suffices. The metrics are a
+safety-first sequence with no composite score: the headline is the highest safe completion rate
+subject to a preregistered ceiling on catastrophic misses, and because a system that escalates
+everything is trivially safe but useless, escalation rate is always reported beside safety. We use
+the language ``capacity-constrained evidence selection with safe escalation'' and never ``provably
+safe selection'': answerability checking is measured risk control, not a formal guarantee over the
+input distribution. A feasibility triage over a public regulatory-filing corpus finds the build
+tractable, with dataset contamination as the primary kill risk and mitigations (closed-book
+controls, post-cutoff filings, held-out generators) designed in. Escalation as a product behavior
+is planned and not currently available.
+
+% ===========================================================================
+\section{Limitations}
+\label{sec:limitations}
+
+We state the limitations plainly.
+\begin{itemize}
+  \item \textbf{Vendor authorship.} This evaluation was designed, run, and written by the authors,
+  who develop the instrument under test (see the conflict-of-interest statement). The mitigations are
+  official scorers, a released harness and manifests, first-class negative results, and the
+  public-harness replication of Section~\ref{sec:replication}, which is implementation-path, not
+  operator-independent.
+  \item \textbf{Proprietary instrument.} The selection layer and its operating-envelope gate are a
+  proprietary system, described here at the architecture level of its technical report
+  \citep{rao2026needlepath}; the released artifact is the
+  evaluation harness, not the system, so we claim artifact and code-path reproducibility, not
+  independent-system reproducibility.
+  \item \textbf{Operating-point confound.} Each arm is run at a single published or default
+  operating point, so method quality and compression aggressiveness cannot be separated; all
+  orderings are configuration-scoped. A matched-budget or Pareto comparison across operating points
+  is future work.
+  \item \textbf{Single model family per run.} Every arm within a run uses one base model
+  (\fn{gemini-3.1-pro-preview} or \fn{gpt-4o-mini}, per run); we make no cross-model
+  generalization claim.
+  \item \textbf{Deterministic decoding.} All runs use temperature $0$; deterministic decoding may
+  interact differently with rewritten or reordered prompts than sampling would, and we do not
+  characterize that interaction.
+  \item \textbf{Single seed and run-day.} Each headline result is one seed on one run-day; the
+  ${\sim}39\%$ agentic task-flip rate (Section~\ref{sec:variance}) is why we validate the gate by
+  byte-identity rather than rerun parity, but the non-agentic results are likewise single-seed.
+  \item \textbf{Synthetic-data dominance of RULER.} The headline comparison rests on RULER, whose
+  haystacks are synthetically generated; strong RULER behavior need not transfer to natural
+  long-context distributions.
+  \item \textbf{Latency class stated per figure.} The $8.5$--$14.5$\,ms selection latency is
+  \texttt{in\_process}; the replication adapter round trip is \texttt{hosted\_adapter\_localhost}
+  ($52.2$/$77.1$\,ms); a hosted production deployment adds wide-area transit and is measured in the
+  \texttt{remote\_api\_*} classes.
+  \item \textbf{Fallback rate.} The replication run has a $40\%$ fallback rate; those items save no
+  tokens and score as full context, so the reported lift is entirely from engaged selections.
+  \item \textbf{Document-QA and tool-calling controls.} On a reproducible re-run, SQuAD~v2 and BFCL
+  show no statistically detectable difference from full context (Section~\ref{sec:defn}); these are
+  within-run observations about evidence and schema survival, not claims about absolute quality, and
+  the gate stood down on all items, so they show no detectable regression rather than repair under
+  stress.
+  \item \textbf{Excluded artifact task.} \texttt{niah\_single\_3} is a dead-zero across all arms
+  (truncated reference answers) and is excluded from the headline $12$-task average; including it
+  changes the \NP{}-vs-full deltas by $\le 0.5\pp$ and leaves the ordering unchanged
+  (Appendix~\ref{app:ruler}).
+  \item \textbf{RULER item pairing.} The official export contains legitimately repeated examples
+  whose index is not unique within a task; all comparisons are paired by row position, verified to
+  $100$ rows per cell with an identical (index, position) sequence across arms.
+  \item \textbf{Two context lengths only.} We report $8$K and $16$K and make no scaling-law claim.
+  \item \textbf{Compresr at free-tier concurrency, and API drift.} The commercial arm was run at
+  $\le 2$ in-flight requests, where rate-limit backoff contaminates the mean (we report medians);
+  and, like any hosted third-party service, its API may drift in version or behavior after our run
+  date, so its numbers are pinned to the recorded package version and run date.
+  \item \textbf{Gate calibration.} The operating-envelope gate's calibration is a conservative
+  starting operating point fit on the offline signal set with no held-out split; it is not a
+  generalization claim to unseen tasks.
+\end{itemize}
+
+% ===========================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+The honest picture of a context-selection layer is regime-dependent. It wins where the context is
+junk-heavy (RULER: above every tested configuration at both lengths, with the pure-compression arm
+below full context), stands aside byte-identically where trimming would not pay (agentic tool use),
+and needs a third behavior, escalation, where the context does not fit at all. The negative results
+(an out-of-envelope loss with total tokens rising, a compression arm's billed tokens going negative,
+and $39\%$ run-to-run task-flip that forces validation by identity rather than parity) are not
+footnotes to the wins but the spine that makes the wins credible. Reproducibility is
+advanced by a public-harness (implementation-path) replication of the primary finding through the
+same hosted adapter a customer would use; a fully operator-independent replication, which the
+released harness makes possible, remains open. The transferable contribution is the methodology: a
+matched protocol, negative
+results reported as first-class, latency measured in labeled classes, and the operating envelope
+treated as an evaluation axis rather than an afterthought.
+
+% ===========================================================================
+\section*{Author contributions}
+K.K.: conceptualization of the benchmark program, methodology, investigation, formal analysis,
+project administration, writing (original draft, review and editing). S.R.: software and methodology
+of the context-selection system under evaluation, resources, validation of the system description
+and experimental configuration, writing (review and editing). Both authors approved the final
+manuscript and accept responsibility for its contents.
+
+\section*{Conflict of interest}
+Both authors are co-founders of Next Moca Global, Inc., which develops \NP{}, the instrument under test. To limit
+the effect of this conflict, every quality number is produced by the benchmark's own official
+scorer; the harness, pinned configurations, seeds, and checksummed manifests are released; negative
+results are reported as first-class findings; and the primary result is re-established through a
+public harness that reaches the system only over a versioned adapter. None of these removes the
+conflict, and an operator-independent replication remains the appropriate next step.
+
+% ===========================================================================
+\appendix
+
+\section{Per-Claim Provenance}
+\label{app:provenance}
+
+Every load-bearing number traces to a run in the released data deposit and its SHA-256 artifact
+manifest. Table~\ref{tab:provenance} gives the mapping, keyed by run identifier; \fn{csbench.latency}
+and \fn{measure\_remote\_latency} are the released latency-measurement tools.
+
+\begin{table}[p]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{4.0cm} >{\raggedright\arraybackslash}p{6.1cm} >{\raggedright\arraybackslash}p{3.7cm}@{}}
+\toprule
+Claim & Value / statistic & Released run \\
+\midrule
+RULER five-arm order @ $8$K & NP 54.0 $>$ full 48.2 $>$ Headroom 42.5 $>$ CPC 38.0 $>$ LL2 33.0 & \fn{ruler\_v1} \\
+NP vs full, RULER & $+5.8/+4.7\pp$; $4/26$ sig & \fn{ruler\_v1} \\
+NP vs LLMLingua-2, RULER & $+21.0/+17.2\pp$; $12/26$ sig, $0$ against & \fn{ruler\_v1} \\
+Headroom vs CPC, RULER & $+4.5/+1.2\pp$ & \fn{ruler\_v1} (Headroom arm) \\
+Headroom billed-basis net tokens & $-2.9\%/-1.6\%$ & \fn{ruler\_v1} (Headroom arm) \\
+AppWorld NP vs full & $-25.0\pp$; $p{=}2.28\times10^{-8}$ & \fn{appworld\_v1} \\
+AppWorld total tokens & $+12.3\%$; CI $[+2147,+31031]$ & \fn{appworld\_v1} \\
+AppWorld NP vs.\ ACON cost & $-\$0.0389$/ep; CI $[-0.0642,-0.0137]$ & \fn{appworld\_v1} \\
+Run-to-run task flip & ${\sim}39\%$ & \fn{gate\_probe\_v1} \\
+Gate AppWorld stand-down (mode on) & $208/208$, byte-identical & \fn{gate\_appworld\_v1} \\
+Gate RULER engage / no detectable diff. & $89.0\%$; $+0.0021$ $[-0.0014,+0.0059]$ & \fn{gate\_ruler\_v1} \\
+Replication NP vs full & $+4.99\pp$ $[+3.66,+6.32]$; $p{=}0.0001$ & \oppoint{}; \fn{ruler\_repl\_v1} \\
+Replication per-length McNemar $p$ & NP $0.014$/$0.003$; Compresr $0.101$/$0.871$ & \fn{ruler\_repl\_v1} \\
+Replication tokens / cost & $-32\%$ ($11784{\to}7977$); \$15.67 vs \$24.53 & \fn{ruler\_repl\_v1} \\
+Compresr vs full & $+1.45\pp$ $[+0.09,+2.82]$; $p{=}0.193$ n.s.; $-22\%$ & \fn{ruler\_repl\_v1} \\
+\NP{} adapter latency (replication) & median $52.2$/$77.1$\,ms (per-item \fn{client\_latency\_ms}) & \fn{ruler\_repl\_v1} \\
+Compresr latency decomposition & $252/431$ $\to$ $229/408$ $\to$ $121/255$\,ms & \fn{csbench.latency} \\
+Compresr transport baseline / floor & $23.1$\,ms / $98.8{\to}75.6$\,ms & \fn{csbench.latency} \\
+BFCL / SQuAD, no detectable diff. & $-1\pp$ ($p{=}1.0$) / $\Delta$F1 $-0.0075$ (CI straddles $0$) & \fn{controls\_v1} (BFCL, SQuAD) \\
+TruthfulQA no-op & $0.78$ all arms; $0$ flips; $p{=}1.0$ & \fn{controls\_v1} (TruthfulQA) \\
+GSM8K neutral control & $+0.18\pp$; CI spans zero & \fn{gsm8k\_v1} (hash-only) \\
+RULER full-prompt token reduction & $23.1\%$ / $37.3\%$ ($8$K/$16$K) & \fn{ruler\_v1} \\
+Headroom gross token reduction & $25.3\%$ / $26.5\%$ & \fn{ruler\_v1} (Headroom arm) \\
+\bottomrule
+\end{tabular}
+\caption{Per-claim provenance. Each row's per-item outputs and its SHA-256 manifest are in the
+released data deposit (this paper's Zenodo record, DOI~\texttt{10.5281/zenodo.21502503}), keyed by the run
+identifier; per-file digests
+resolve against that deposit.}
+\label{tab:provenance}
+\end{table}
+
+\section{RULER Per-Task Detail}
+\label{app:ruler}
+
+The $13$-task unweighted averages (including \texttt{niah\_single\_3}) are, at $8$K: full $44.5$,
+\NP{} $49.8$, LLMLingua-2 $30.4$, CPC $35.1$, Headroom $39.3$; and at $16$K: full $41.1$, \NP{}
+$45.4$, LLMLingua-2 $29.6$, CPC $37.5$, Headroom $38.6$. The $12$-task headline average
+(Table~\ref{tab:ruler-scores}) excludes \texttt{niah\_single\_3}, a dead-zero across all five arms
+caused by truncated reference answers, not by any method. Two tasks (\texttt{vt},
+\texttt{niah\_multiquery}) have near-$100\%$ \NP{} fallback in this run, so \NP{}'s score on those
+reflects the fallback safety net rather than selection; this is disclosed for any pairwise reading
+there. Per-task cells and paired-stat tables are in the results documents under the manifests of
+Table~\ref{tab:provenance}.
+
+\section{Reproducibility Details}
+\label{app:repro}
+
+The replication (Section~\ref{sec:replication}) ran entirely on the extracted public harness
+(\texttt{csbench}, released with this paper), with \NP{} reached only over HTTP through the hosted
+adapter at the versioned, immutable operating point \oppoint{} recorded in every per-item row. The
+harness sees only a neutral request/response wire contract at \wire{}; no engine code runs in it.
+The base model is \texttt{gemini-3.1-pro-preview} at temperature $0$ with a fixed output-token cap,
+identical across arms. Per-item artifacts (per arm, per task/length cell) are stored in object
+storage with a SHA-256 manifest. Latency measurement uses the committed \texttt{csbench.latency}
+utilities; the transport baseline and service floor were measured on the same date as the run.
+
+\section{Statistical Methods}
+\label{app:stats}
+
+\paragraph{Primary test and decision rule.} The program's primary test for a two-arm comparison is a
+pair of \emph{co-primary} per-length McNemar tests on paired binarized correctness
+\citep{mcnemar1947}, Holm-corrected within the two-test family at $\alpha{=}0.05$; both per-length
+results are always reported. This convention was fixed when the RULER protocol was established
+(2026-07-07), before the runs reported here, so we describe it as a standing convention and do
+\emph{not} claim formal preregistration. McNemar uses the $\chi^2$ form with continuity correction
+when the discordant count is large and the exact binomial form otherwise. Correctness is binarized
+at the benchmark's own threshold (for RULER, official score $\ge 1.0$); binarizing at the official
+threshold keeps the primary test faithful to the benchmark's own scorer.
+
+\paragraph{Secondary and sensitivity statistics.} Pooled McNemar and paired-bootstrap confidence
+intervals ($10{,}000$ resamples, seed $42$) on the accuracy (mean fractional score) delta are
+reported as secondary, descriptive statistics. A paired bootstrap on the \emph{continuous}
+(unbinarized) scores is the stated sensitivity analysis, reported alongside the binarized primary
+result wherever the two could diverge (Sections~\ref{sec:replication}, \ref{sec:compresr}).
+Cell-level McNemar tallies (Section~\ref{sec:ruler}) are exploratory and uncorrected for
+multiplicity; the confirmatory aggregate test for the headline comparison is the pooled replication
+McNemar.
+
+\paragraph{Pairing.} Items are paired by row position, not by a non-unique index field, with a
+per-position alignment assertion; every task/length cell is verified to contain the same number of
+rows with an identical (index, position) sequence across arms.
+
+% ===========================================================================
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}
