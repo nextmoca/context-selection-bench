@@ -88,7 +88,7 @@ canonical reference:
 
 > *A Matched-Protocol Benchmark Program for Context Selection in Agentic LLM
 > Systems: harness and artifacts.* Next Moca Global, Inc., 2026. Zenodo.
-> DOI: [10.5281/zenodo.21502503](https://doi.org/10.5281/zenodo.21502503).
+> DOI: [10.5281/zenodo.21502502](https://doi.org/10.5281/zenodo.21502502).
 
 See [`CITATION.cff`](./CITATION.cff) for the author list and machine-readable
 citation metadata. An arXiv preprint of the accompanying paper is forthcoming.

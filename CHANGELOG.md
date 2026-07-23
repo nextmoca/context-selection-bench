@@ -16,6 +16,11 @@ All notable changes to this project are documented here. This project adheres to
   wording in `paper/main.tex`, `README.md`, `RELEASE.md`, and the suite module
   docstrings now states this precisely. No code paths, runs, or reported numbers
   changed.
+- Citation metadata now uses the Zenodo concept DOI (`10.5281/zenodo.21502502`,
+  all-versions) in `README.md` and `CITATION.cff`, so citations always resolve to
+  the latest release. The paper's own artifact references (the title-page data
+  availability note and the per-claim provenance table) stay pinned to the exact
+  version deposit.
 
 ## 1.0.0 - 2026-07-23
 
