@@ -10,7 +10,9 @@ records and task go in, selected/compressed context and timing metadata come
 out), so different methods are compared under one protocol, one set of models,
 one set of scorers, and one set of seeds. It ships:
 
-- the harness and official scorers for each suite;
+- the harness and, for each suite, a reimplementation of that benchmark's
+  published reference metric (never a bespoke metric of ours; per-suite deviations
+  are documented in the paper's scorer-provenance appendix);
 - a paired-statistics module (McNemar + bootstrap confidence intervals);
 - competitor arms that run locally (full-context passthrough, and compression
   baselines);
@@ -86,7 +88,7 @@ canonical reference:
 
 > *A Matched-Protocol Benchmark Program for Context Selection in Agentic LLM
 > Systems: harness and artifacts.* Next Moca Global, Inc., 2026. Zenodo.
-> DOI: [10.5281/zenodo.21502503](https://doi.org/10.5281/zenodo.21502503).
+> DOI: [10.5281/zenodo.21502502](https://doi.org/10.5281/zenodo.21502502).
 
 See [`CITATION.cff`](./CITATION.cff) for the author list and machine-readable
 citation metadata. An arXiv preprint of the accompanying paper is forthcoming.

@@ -1,24 +1,27 @@
-# Release v1.0.0
+# Release archive
 
 This repository accompanies the paper **A Matched-Protocol Benchmark Program for Context Selection
 in Agentic LLM Systems** (Next Moca Global, Inc.). See `CITATION.cff` for the author list and
 citation.
 
-> This file describes the v1.0.0 release as a whole: the GitHub repository plus the archived Zenodo
-> bundle (DOI 10.5281/zenodo.21502503). Per-item run data (the `runs/` and deposit trees named below)
-> is not stored in the git repository; it lives in the Zenodo archive and is regenerable with the
-> harness. Cloning the repository gives you the harness, configs, scorers, and manifests, not the
-> per-item run data.
+> This file describes the release archive layout, which is stable across releases. Each release is
+> the GitHub repository at its tagged commit plus an archived Zenodo bundle (all-versions DOI
+> 10.5281/zenodo.21502502, which resolves to the latest version). Per-item run data (the `runs/` and
+> deposit trees named below) is not stored in the git repository; it lives in the Zenodo archive and
+> is regenerable with the harness. Cloning the repository gives you the harness, configs, scorers,
+> and manifests, not the per-item run data.
 
+- Per-release specifics (version, date, and what changed) are in `CHANGELOG.md` and the GitHub releases.
 - Paper: arXiv preprint forthcoming (cs.CL).
-- Archived artifacts: DOI [10.5281/zenodo.21502503](https://doi.org/10.5281/zenodo.21502503).
+- Archived artifacts: all-versions DOI [10.5281/zenodo.21502502](https://doi.org/10.5281/zenodo.21502502) (resolves to the latest release).
 - Code: Apache-2.0 (`LICENSE`). Result data: CC BY 4.0 (`LICENSE-DATA`). Upstream datasets are
   fetched by scripts, never redistributed here, and remain under their own licenses (`DATASETS.md`).
 
 ## Contents
 
-- `csbench/`, the extracted public harness: arm contract, suites, official scorers, and the four
-  latency measurement classes.
+- `csbench/`, the extracted public harness: arm contract, suites, reference-metric scorers (each
+  benchmark's published metric, reimplemented here; deviations enumerated in the paper's
+  scorer-provenance appendix), and the four latency measurement classes.
 - `runs/ruler_repl_v1/`, the public-harness replication run: per-item outputs and a SHA-256 manifest.
 - `tools/verify_manifests.py`: recompute every file's SHA-256 against its manifest.
 - `scripts/`: dataset fetch scripts (RULER generator, etc.).

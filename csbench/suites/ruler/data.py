@@ -1,4 +1,4 @@
-"""RULER dataset loading and official-style scoring.
+"""RULER dataset loading and RULER-style string-match scoring.
 
 This module provides the generic, engine-independent surface for the RULER
 long-context suite: loading official RULER JSONL examples, splitting an example
