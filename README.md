@@ -10,7 +10,9 @@ records and task go in, selected/compressed context and timing metadata come
 out), so different methods are compared under one protocol, one set of models,
 one set of scorers, and one set of seeds. It ships:
 
-- the harness and official scorers for each suite;
+- the harness and, for each suite, a reimplementation of that benchmark's
+  published reference metric (never a bespoke metric of ours; per-suite deviations
+  are documented in the paper's scorer-provenance appendix);
 - a paired-statistics module (McNemar + bootstrap confidence intervals);
 - competitor arms that run locally (full-context passthrough, and compression
   baselines);

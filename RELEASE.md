@@ -17,8 +17,9 @@ citation.
 
 ## Contents
 
-- `csbench/`, the extracted public harness: arm contract, suites, official scorers, and the four
-  latency measurement classes.
+- `csbench/`, the extracted public harness: arm contract, suites, reference-metric scorers (each
+  benchmark's published metric, reimplemented here; deviations enumerated in the paper's
+  scorer-provenance appendix), and the four latency measurement classes.
 - `runs/ruler_repl_v1/`, the public-harness replication run: per-item outputs and a SHA-256 manifest.
 - `tools/verify_manifests.py`: recompute every file's SHA-256 against its manifest.
 - `scripts/`: dataset fetch scripts (RULER generator, etc.).

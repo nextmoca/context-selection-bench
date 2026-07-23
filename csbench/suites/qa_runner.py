@@ -3,7 +3,8 @@
 
 This is the port of the reference before/after context-reduction driver. It runs
 short-answer QA cases through the uniform arm contract and scores them with each
-suite's official scorer. The one structural change from the reference version:
+suite's reference metric (the benchmark's published metric, reimplemented here).
+The one structural change from the reference version:
 the reference per-item engine call (which built a selection service and selected
 context in-process) is replaced by ``arm.select(request) -> ContextResponse``.
 Every downstream field the reference row carried is now read straight off

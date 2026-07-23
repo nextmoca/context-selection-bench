@@ -44,7 +44,7 @@ score with the method authors' own scorer, and seldom report negative results, s
 latency measurement, or close the reproducibility loop. We present a matched-protocol
 benchmark \emph{program} for a context-selection layer, using one running system (\NP{}) as the
 instrument under test. Under a single protocol (same base model, identity-gated items, one
-arm per method, official benchmark scorers, and paired statistics), we make five
+arm per method, reference-metric scorers, and paired statistics), we make five
 contributions. \textbf{(1)} On RULER, across five arms at two context lengths, the selection
 layer scores above every tested configuration while the pure-compression arm scores below full
 context; we report the full five-arm ordering and explicitly decline any categorical
@@ -94,7 +94,7 @@ active areas of work, and both are typically reported by their authors on favora
 The difficulty for a practitioner is that the published evaluations are not comparable to one
 another: they use different base models, different competitor arms, and different context
 lengths; they frequently score with a metric or judge chosen by the method's authors rather
-than the benchmark's official scorer; they under-report negative results; they measure latency
+than the benchmark's own published metric; they under-report negative results; they measure latency
 in incommensurable ways (a local library call against a remote API call); and they rarely close
 the reproducibility loop by releasing a harness an outsider can run to reproduce the headline.
 
@@ -104,7 +104,7 @@ a context-selection layer under a matched protocol. We use one running system, \
 instrument under test, but the object of the paper is the methodology and what it reveals, not a
 product. Under one protocol (Section~\ref{sec:protocol}), fixing the same base model, items gated by
 content hash and paired item-for-item, one arm per method run at its own operating point,
-official benchmark scorers, and paired statistics, we make five contributions:
+reference-metric scorers, and paired statistics, we make five contributions:
 
 \begin{enumerate}
   \item A matched-protocol comparison across selection and compression methods on RULER, at two
@@ -209,9 +209,9 @@ described previously at the architecture level \citep{rao2026needlepath}.\footno
 report \citep{rao2026needlepath} evaluated an earlier configuration on a
 $100$-task live benchmark. Its headline figures (final-path input-token reduction $27.4\%$;
 usefulness preserved or improved in $83\%$ of cases) come from a single base model scored by a
-pairwise LLM judge rather than an official scorer, and are not carried
+pairwise LLM judge rather than the benchmark's reference metric, and are not carried
 forward here. Separately, that report's wrapper-suite figures are superseded by the
-official-scorer, matched-protocol results reported in this paper.} It proceeds in five stages: it
+reference-metric, matched-protocol results reported in this paper.} It proceeds in five stages: it
 builds a \emph{task signature} of the current request; it \emph{scores} each candidate state
 record against that signature; it \emph{selects and formats} the chosen records; it applies a
 \emph{risk-aware fallback} that fails open to the baseline prompt; and it exposes an
@@ -228,8 +228,12 @@ one model (\texttt{gemini-3.1-pro-preview}) at temperature $0$ with identical de
 every arm, confirmed callable immediately before spend. \emph{Same items:} each arm sees the
 same benchmark items, gated by SHA-256 content hashes and paired item-for-item. \emph{One arm,
 one method:} each method runs at its own published or default operating point; no arm is tuned to
-the benchmark. \emph{Official scorers:} accuracy is computed by each benchmark's own official
-scorer, never one of ours. \emph{Paired statistics:} significance is assessed with McNemar's
+the benchmark. \emph{Reference-metric scorers:} accuracy is computed by each benchmark's own
+published reference metric, reimplemented in the released harness and applied
+identically to every arm on identical items; we never substitute a bespoke metric
+of our own. Per-suite deviations from the official scoring artifacts, and why they
+do not affect the within-run paired comparisons, are enumerated in
+Appendix~\ref{app:scorers}. \emph{Paired statistics:} significance is assessed with McNemar's
 test on paired binarized correctness \citep{mcnemar1947}, and confidence intervals with a paired
 $10{,}000$-resample bootstrap (seed $42$) on the score delta.
 
@@ -556,7 +560,7 @@ correctness, Holm-corrected at family $\alpha{=}0.05$), \NP{} beats full context
 ($+4.64\pp$, $p{=}0.014$ at $8$K; $+5.33\pp$, $p{=}0.003$ at $16$K; both significant after Holm).
 We do not claim preregistration: McNemar on binarized correctness has been the program's standing
 primary test since the RULER protocol was fixed (2026-07-07, before this run), and binarizing at
-the official threshold (RULER score $\ge 1.0$) mirrors the benchmark's own scorer. As secondary,
+the reference threshold (RULER score $\ge 1.0$) mirrors the benchmark's own reference metric. As secondary,
 descriptive statistics, the pooled McNemar is $p{=}0.0001$ and the paired-bootstrap $95\%$ CI on
 the pooled accuracy delta is $+4.99\pp$ $[+3.66,+6.32]$; our stated sensitivity analysis (a
 paired bootstrap on the continuous, unbinarized scores) gives $+2.50\pp$ $[+1.27,+3.73]$, the
@@ -686,7 +690,7 @@ included.
 \subsection{Iso-quality selection}
 
 The program above suggests a definition. An \emph{iso-quality selection-layer benchmark} holds
-answer quality fixed (via an official scorer, matched arms, and paired statistics) and
+answer quality fixed (via a reference-metric scorer, matched arms, and paired statistics) and
 measures token, latency, and cost economics at equal-or-better quality, with \emph{engage-versus-
 stand-down} as a first-class axis rather than an implementation detail. The clean-desk controls in
 this program show why the stand-down axis matters: on GSM8K \citep{cobbe2021gsm8k}, a single tidy
@@ -734,7 +738,7 @@ We state the limitations plainly.
 \begin{itemize}
   \item \textbf{Vendor authorship.} This evaluation was designed, run, and written by the authors,
   who develop the instrument under test (see the conflict-of-interest statement). The mitigations are
-  official scorers, a released harness and manifests, first-class negative results, and the
+  reference-metric scorers applied identically to every arm (Appendix~\ref{app:scorers}), a released harness and manifests, first-class negative results, and the
   public-harness replication of Section~\ref{sec:replication}, which is implementation-path, not
   operator-independent.
   \item \textbf{Proprietary instrument.} The selection layer and its operating-envelope gate are a
@@ -814,8 +818,9 @@ manuscript and accept responsibility for its contents.
 
 \section*{Conflict of interest}
 Both authors are co-founders of Next Moca Global, Inc., which develops \NP{}, the instrument under test. To limit
-the effect of this conflict, every quality number is produced by the benchmark's own official
-scorer; the harness, pinned configurations, seeds, and checksummed manifests are released; negative
+the effect of this conflict, every quality number is produced by the benchmark's own published
+reference metric as reimplemented in the released harness and applied identically to every arm,
+never a bespoke metric of ours (Appendix~\ref{app:scorers}); the harness, pinned configurations, seeds, and checksummed manifests are released; negative
 results are reported as first-class findings; and the primary result is re-established through a
 public harness that reaches the system only over a versioned adapter. None of these removes the
 conflict, and an operator-independent replication remains the appropriate next step.
@@ -871,6 +876,101 @@ resolve against that deposit.}
 \label{tab:provenance}
 \end{table}
 
+\section{Scorer Provenance}
+\label{app:scorers}
+
+Every accuracy figure in this paper is produced by a single per-suite scorer that is fixed before
+the comparison and applied identically to every arm on identical, position-paired items. For the
+five public suites bundled in the released harness (RULER, SQuAD~v2, BFCL, TruthfulQA, and GSM8K),
+that scorer is a reimplementation of the benchmark's published reference metric, not a call into
+the benchmark's original scoring package; only the datasets are obtained from their official
+sources. AppWorld is the exception: its numbers come from AppWorld's own official evaluator running
+in the third-party environment. Table~\ref{tab:scorers} maps each suite to its official scoring
+artifact, what the harness implements, and the principal deviations; the paragraphs below add, per
+suite, why the within-run paired claims survive each deviation.
+
+\paragraph{Why common-mode scorer choices do not distort a paired comparison.} Every claim in this
+paper is relative and within-run: a delta between two arms scored by the same function on the same
+items, never an absolute score submitted to a leaderboard. A scorer that reimplements a reference
+metric can differ from the official artifact in absolute level, but because it scores all arms
+identically, that difference is common-mode and cancels in the arm-versus-arm delta and in the
+paired McNemar and bootstrap tests, which read only per-item agreements and disagreements. On the
+clean-desk controls (SQuAD~v2, BFCL, TruthfulQA, GSM8K) the operating-envelope gate additionally
+stood down on all or nearly all items, so the selection arm received inputs byte-identical to the
+full-context arm and no scorer could separate them even in principle; those controls therefore
+report the absence of a detectable regression, not an absolute quality ranking.
+
+\begin{table}[t]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{1.7cm} >{\raggedright\arraybackslash}p{3.2cm} >{\raggedright\arraybackslash}p{3.9cm} >{\raggedright\arraybackslash}p{4.0cm}@{}}
+\toprule
+Suite & Official scoring artifact & What the harness implements & Principal deviation(s) \\
+\midrule
+RULER & Generator + string-match scorer (\texttt{NVIDIA/RULER}) & Reimplemented substring string-match recall (\texttt{part}\,/\,\texttt{all} variants) over official RULER JSONL & Not run through the official RULER evaluator; not a leaderboard submission \\
+SQuAD~v2 & \texttt{evaluate-v2.0} EM/F1 with no-answer handling & SQuAD-style normalized EM/F1 over official \texttt{squad\_v2} & Reimplementation; unanswerable items filtered (no-answer path untested); scored as full-vs-reduced answer preservation, gold only as a secondary check \\
+BFCL & AST + executable-function checker (\texttt{gorilla-llm}) & Argument-value-recall proxy ($\ge$ half of expected values) with optional LLM judge ($\ge 3/5$), \texttt{simple} category of \texttt{BFCL\_v3} & Proxy, not the official AST/executable checker (largest deviation); no absolute BFCL score claimed \\
+TruthfulQA & MC1/MC2 log-probability metric (\texttt{sylinrl/TruthfulQA}) & Generative single-letter MC1 accuracy over the official MC1 targets & Generative selection, not log-probability; MC2 not implemented \\
+GSM8K & No canonical package; \texttt{\#\#\#\#} exact-match convention (\texttt{openai/grade-school-math}) & Reimplemented \texttt{\#\#\#\#}/last-number float-tolerant exact match & Reimplemented convention; used only as a diagnostic control \\
+AppWorld & Official \texttt{appworld} evaluator (Task Goal Completion) & AppWorld's own official evaluator, in the third-party environment & None: genuine official scorer \\
+\bottomrule
+\end{tabular}
+\caption{Scorer provenance. For the five bundled suites the harness reimplements each benchmark's
+published reference metric (only the datasets are official); AppWorld uses its genuine official
+evaluator. The within-run paired comparisons apply one fixed scorer identically to every arm, so
+the deviations listed here are common-mode; see the per-suite notes.}
+\label{tab:scorers}
+\end{table}
+
+\paragraph{RULER.} The harness scores a reimplemented substring string-match (recall) over the
+official RULER-generated JSONL: \texttt{string\_match\_part} for \texttt{qa\_*} tasks and
+\texttt{string\_match\_all} (fractional recall over all needles) otherwise, following RULER's
+convention. The arms are run through this harness rather than NVIDIA's evaluation harness and are
+not an official RULER leaderboard submission, as the released \texttt{matrix.json} records. The
+primary test binarizes each arm at RULER's own all-needles threshold (score $\ge 1.0$) and compares
+arms pairwise on identical haystacks, so the reimplemented matcher is applied identically to every
+arm.
+
+\paragraph{SQuAD~v2.} The harness loads the official \texttt{rajpurkar/squad\_v2} validation split
+and scores with SQuAD-style normalized EM/F1. Three deviations from \texttt{evaluate-v2.0} matter:
+it is a reimplementation, not the official script; unanswerable examples are filtered at load, so
+SQuAD~v2's no-answer scoring is not exercised; and the reported figure is an answer-preservation
+agreement between the full-context and reduced-context answers, with the gold answer used only as a
+secondary containment check, rather than EM/F1 against gold. The paper's SQuAD claim is exactly the
+within-run observation that needed evidence survives selection ($\Delta$F1 confidence intervals
+straddling zero), not an absolute SQuAD~v2 score, and the gate stood down on every control item.
+
+\paragraph{BFCL.} This is the largest deviation. The harness scores the \texttt{simple} category of
+\texttt{BFCL\_v3} with a deterministic argument-value-recall proxy (a call counts as matched when at
+least half of the expected parameter values appear in the response), optionally augmented by an LLM
+judge ($\ge 3/5$); it does not run the official AST or executable-function checker. The same proxy
+is applied to every arm, and the gate stood down on all BFCL control items, so the full-context and
+selection arms received near-identical prompts; the paper's claim is only that rigid tool schemas
+survive selection with no detectable difference (McNemar $p{=}1.0$), which does not depend on the
+proxy's absolute calibration. Because this scorer is a simplified proxy rather than BFCL's reference
+metric, no absolute BFCL accuracy is claimed.
+
+\paragraph{TruthfulQA.} The harness uses the official \texttt{multiple\_choice} MC1 targets (pinned
+dataset revision) but scores generative single-letter selection accuracy: the model emits a choice
+letter that is compared to the single correct option, rather than the official log-probability MC1
+metric, and MC2 is not implemented. The paper's TruthfulQA result is a byte-identical no-op ($0.78$
+on all three arms, zero flipped answers, $100\%$ stand-down), so with identical inputs across arms
+the metric definition cannot change the paired result.
+
+\paragraph{GSM8K.} GSM8K has no single canonical scorer package; the community convention is exact
+match on the final numeric answer using the \texttt{\#\#\#\#} gold marker. The harness reimplements
+that convention (prefer the \texttt{\#\#\#\#} marker, else the last number, float-tolerant
+comparison). GSM8K is used only as a diagnostic clean-desk control, and its reported figure is
+neutral ($+0.18\pp$, confidence interval spanning zero) with the same scorer applied to every arm.
+
+\paragraph{AppWorld: the genuine official evaluator.} AppWorld's Task Goal Completion numbers
+(Section~\ref{sec:appworld}) are produced by AppWorld's own official evaluator running against the
+third-party AppWorld environment, not by any scorer of ours, and its in-run reward signal is not
+used as ground truth. AppWorld is therefore the one suite in this paper whose accuracy is measured
+by the benchmark's genuine official scorer, and it is reported as a negative result.
+
 \section{RULER Per-Task Detail}
 \label{app:ruler}
 
@@ -906,8 +1006,8 @@ results are always reported. This convention was fixed when the RULER protocol w
 (2026-07-07), before the runs reported here, so we describe it as a standing convention and do
 \emph{not} claim formal preregistration. McNemar uses the $\chi^2$ form with continuity correction
 when the discordant count is large and the exact binomial form otherwise. Correctness is binarized
-at the benchmark's own threshold (for RULER, official score $\ge 1.0$); binarizing at the official
-threshold keeps the primary test faithful to the benchmark's own scorer.
+at the benchmark's own threshold (for RULER, score $\ge 1.0$); binarizing at that
+threshold keeps the primary test faithful to the benchmark's own reference metric.
 
 \paragraph{Secondary and sensitivity statistics.} Pooled McNemar and paired-bootstrap confidence
 intervals ($10{,}000$ resamples, seed $42$) on the accuracy (mean fractional score) delta are
