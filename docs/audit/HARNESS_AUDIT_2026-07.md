@@ -805,6 +805,42 @@ detector added in v1.1 ships with both controls, and the reachability detector
 additionally documents what AST matching cannot see, so a green run is not read
 as proof of runtime coverage.
 
+## Single-producer guards
+
+A second failure class, distinct from the instrument failures above and from the
+inferred-bound error at entry 6. It concerns guards rather than measurements, and it
+recurred within this harness, including inside the guards written to close the
+row-duplication defect itself.
+
+**The pattern: a guard that derives its condition from one producer of that
+condition will miss every other producer.** The guard is not wrong about the case it
+was written from. It is silently blind to the others, and it reports success while
+blind, because the condition it evaluates is a proxy for the real one — a single
+producer standing in for the set.
+
+| # | Guard | Condition derived from | Producers missed |
+| --- | --- | --- | --- |
+| A | index-keying tripwire (`csbench/suites/ruler/pairing.py:47`) | the one call site it was wired into, the resume cache (`harness.py:472`) | every other path that keys rows for a join or a cache; the comparison join that carried the original finding is not among its callers |
+| B | write-time item identity (`harness.py:476-483`) | `len(rows)`, i.e. the row set under test | any truncation that removes whole rows — 99 rows is 99 positions, so a truncated prefix validates as complete. Closed by requiring `expected_n` from the caller |
+
+Entry B is the instructive one: the guard was added *by the fix* for the defect it
+checks, and in its first form would have certified the damaged deposit as sound. A
+guard written while thinking about one producer encodes that producer, not the
+invariant.
+
+**Distinguished from entry 6.** The inferred-bound error is a guard computing a
+*threshold* from data it should have been given. This class is a guard computing its
+*trigger* from one member of a set. The remedies differ: entry 6 is fixed by
+requiring the bound as an argument; this class is fixed by deriving the condition
+from the invariant itself — assert on the property, not on the one symptom that
+happens to produce it.
+
+**Standing rule adopted from this audit:** when a guard tests a condition that more
+than one code path can produce, enumerate the producers before writing the test, and
+either cover the set or state in the guard which producers it does not cover. A guard
+that names one producer in its own implementation is scoped to that producer,
+whatever its docstring claims.
+
 ---
 
 # Disproven claims
