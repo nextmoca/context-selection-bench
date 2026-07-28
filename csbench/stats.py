@@ -455,3 +455,79 @@ def mcnemar_test(correctness_a: Sequence[bool], correctness_b: Sequence[bool]) -
     return McNemarResult(
         b=b, c=c, statistic=None, p_value=float(exact.pvalue), method="exact_binomial", n_items=n_items
     )
+
+
+# ---------------------------------------------------------------------------
+# holm_adjust: the paper's stated multiplicity correction, in code
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class HolmResult:
+    """One member of a Holm-corrected family of tests."""
+
+    label: str
+    p_raw: float
+    p_adjusted: float
+    threshold: float
+    reject: bool
+
+
+def holm_adjust(
+    p_values: Dict[str, float], *, alpha: float = 0.05
+) -> List[HolmResult]:
+    """Holm-Bonferroni step-down correction over a family of tests.
+
+    The program's primary test for a two-arm comparison is a pair of co-primary
+    per-length McNemar tests, Holm-corrected within that two-test family at
+    ``alpha=0.05``. That correction was documented in the paper's statistical
+    methods but was not implemented anywhere in this package, so the emitted
+    p-values were raw and a reader could not tell.
+
+    Holm sorts the family ascending and compares the k-th smallest p against
+    ``alpha / (m - k)``. It stops at the first failure: every remaining
+    hypothesis is retained regardless of its own p-value. The returned
+    ``p_adjusted`` is the standard step-down adjusted value (running maximum of
+    ``(m - k) * p``, capped at 1.0), so it can be compared against ``alpha``
+    directly.
+
+    Args:
+        p_values: ``{label: raw p-value}`` for every member of the family. The
+            family must be the one actually claimed; passing a subset silently
+            weakens the correction.
+        alpha: family-wise error rate.
+
+    Returns:
+        One ``HolmResult`` per input, ordered ascending by raw p-value, each
+        carrying the raw p, the adjusted p, the threshold it was compared
+        against, and the reject decision.
+
+    Raises:
+        ValueError: if ``p_values`` is empty or any p is outside [0, 1].
+    """
+    if not p_values:
+        raise ValueError("holm_adjust requires at least one p-value")
+    for label, p in p_values.items():
+        if not (0.0 <= float(p) <= 1.0):
+            raise ValueError(f"p-value for {label!r} is outside [0, 1]: {p}")
+
+    ordered = sorted(p_values.items(), key=lambda kv: float(kv[1]))
+    m = len(ordered)
+    results: List[HolmResult] = []
+    running_max = 0.0
+    still_rejecting = True
+    for k, (label, p_raw) in enumerate(ordered):
+        p_raw = float(p_raw)
+        threshold = alpha / (m - k)
+        running_max = max(running_max, min(1.0, (m - k) * p_raw))
+        if still_rejecting and p_raw > threshold:
+            still_rejecting = False
+        results.append(
+            HolmResult(
+                label=label,
+                p_raw=p_raw,
+                p_adjusted=running_max,
+                threshold=threshold,
+                reject=still_rejecting,
+            )
+        )
+    return results

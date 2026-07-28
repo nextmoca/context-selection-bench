@@ -33,6 +33,7 @@ optional dependencies (LLMLingua-2, CPC) are imported lazily, only when named.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -60,6 +61,12 @@ from csbench.provenance import (
     write_output_manifest,
 )
 from csbench.stats import bootstrap_ci_delta, mcnemar_test
+from csbench.suites.ruler.pairing import (
+    ItemIdentityError,
+    assert_item_identity,
+    forbid_index_keying,
+    pair_rows,
+)
 from csbench.suites.ruler.data import (
     OfficialRulerExample,
     chunk_text,
@@ -185,6 +192,18 @@ def build_arm(
 
         return CompresrArm(model="latte_v1")  # default operating point, no tuning
     raise ValueError(f"unknown arm: {name!r}")
+
+
+def input_sha256(example: "OfficialRulerExample") -> str:
+    """SHA-256 of the generated input text for one example.
+
+    The 2026-07-17 deposit recorded only derived quantities (token counts,
+    lengths), so when the dataset was regenerated ten days later, byte-identity
+    of the haystacks could not be verified after the fact -- only inferred from
+    agreeing fingerprints. Persisting this hash makes a later regeneration
+    checkable byte-for-byte instead.
+    """
+    return hashlib.sha256((example.input_text or "").encode("utf-8")).hexdigest()
 
 
 # --------------------------------------------------------------------------- #
@@ -319,6 +338,10 @@ def build_row(
         "task": example.task,
         "position": position,
         "index": example.index,
+        # Byte-level provenance of the generated input. Recorded so a future
+        # regeneration is checkable byte-for-byte rather than inferred from
+        # derived quantities; see input_sha256().
+        "input_sha256": input_sha256(example),
         "example_length": example.length,
         "arm": arm_name,
         "operating_point": operating_point or "",
@@ -411,7 +434,16 @@ def _cell_path(out_root: Path, length: str, arm_name: str, task: str) -> Path:
     return Path(out_root) / "items" / length / arm_name / f"{task}.jsonl"
 
 
-def _load_existing_rows(path: Path) -> dict[int, dict[str, Any]]:
+def _load_existing_rows(path: Path, *, expected_n: int) -> dict[int, dict[str, Any]]:
+    """Resume cache keyed by ``position``.
+
+    This was previously keyed by RULER's ``index``, which is NOT unique within a
+    task. On resume, several positions sharing an index received the SAME row
+    object, which was then mutated (``position`` last-write-wins) and written
+    once per position, so byte-identical copies replaced the evaluations they
+    overwrote. 396 of 7800 rows were destroyed that way in the published
+    replication. See ``csbench.suites.ruler.pairing``.
+    """
     if not path.exists():
         return {}
     rows: dict[int, dict[str, Any]] = {}
@@ -423,13 +455,32 @@ def _load_existing_rows(path: Path) -> dict[int, dict[str, Any]]:
         except json.JSONDecodeError:
             continue
         try:
-            rows[int(row["index"])] = row
+            position = int(row["position"])
         except (KeyError, TypeError, ValueError):
             continue
+        if position in rows:
+            raise ItemIdentityError(
+                f"{path}: duplicate position {position} in an existing cell file. "
+                "This file was written by the pre-fix resume path and has lost "
+                "evaluations; it cannot be safely resumed. Re-run the cell with "
+                "--rerun."
+            )
+        rows[position] = row
+    # `expected_n` is the caller's example count. Inferring the bound from the
+    # keys themselves would let an index-keyed cache define its own bound and
+    # pass -- the precise mistake this tripwire exists to catch.
+    forbid_index_keying(rows.keys(), source=f"{path} resume cache", n=expected_n)
     return rows
 
 
-def _write_cell(path: Path, rows: Sequence[dict[str, Any]]) -> None:
+def _write_cell(path: Path, rows: Sequence[dict[str, Any]], *, expected_n: int) -> None:
+    # Write-time item identity. This is where the 2026-07-17 defect should have
+    # been caught: the cell had 100 rows but fewer than 100 distinct positions,
+    # and nothing objected.
+    # `expected_n` is the planned example count. Using len(rows) would let the
+    # guard define its own expectation: a truncated prefix of positions 1..99
+    # would be "complete" because 99 rows is 99 positions.
+    assert_item_identity(rows, source=str(path), expected_n=expected_n)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
@@ -455,19 +506,24 @@ def run_cell(
 ) -> tuple[Path, list[dict[str, Any]]]:
     """Run every example for one (length, task, arm) cell; persist the JSONL.
 
-    Resumes by index: rows already present in the cell file are reused unless
-    ``rerun`` is set. Returns the cell path and the ordered rows (by position).
+    Resumes by POSITION, cross-checking that the cached row belongs to the same
+    underlying example. Returns the cell path and the ordered rows (by position).
     """
     path = _cell_path(out_root, length, arm_name, task)
-    existing = {} if rerun else _load_existing_rows(path)
+    existing = {} if rerun else _load_existing_rows(path, expected_n=len(examples))
 
     rows_by_position: dict[int, dict[str, Any]] = {}
     for position, example in enumerate(examples, 1):
-        prior = existing.get(example.index)
+        prior = existing.get(position)
         if prior is not None and "score" in prior:
+            if int(prior.get("index", -1)) != int(example.index):
+                raise ItemIdentityError(
+                    f"{path}: cached row at position {position} carries index "
+                    f"{prior.get('index')} but the dataset has {example.index}. The "
+                    "cached run used different data; re-run the cell with --rerun."
+                )
             prior["length"] = length
-            prior["position"] = position
-            rows_by_position[position] = prior
+            rows_by_position[position] = dict(prior)
             continue
         row = run_item(
             arm,
@@ -486,7 +542,7 @@ def run_cell(
             time.sleep(sleep_seconds)
 
     rows = [rows_by_position[p] for p in sorted(rows_by_position)]
-    _write_cell(path, rows)
+    _write_cell(path, rows, expected_n=len(examples))
     return path, rows
 
 
@@ -529,17 +585,20 @@ def compare_to_baseline(
     n_resamples: int,
 ) -> dict[str, Any] | None:
     """Paired McNemar + bootstrap CI on the EM-correctness delta (arm minus
-    baseline) over the items both arms scored (aligned by ``index``).
+    baseline), aligned by ``position`` with an index identity assertion.
 
     Returns ``None`` for the baseline itself or when there is no shared item.
     """
-    arm_by_index = {int(r["index"]): bool(r.get("correct")) for r in arm_rows}
-    base_by_index = {int(r["index"]): bool(r.get("correct")) for r in baseline_rows}
-    common = sorted(set(arm_by_index) & set(base_by_index))
-    if not common:
+    if not arm_rows or not baseline_rows:
         return None
-    arm_correct = [arm_by_index[i] for i in common]
-    base_correct = [base_by_index[i] for i in common]
+    # Position-based pairing with a hard identity assertion. Never an
+    # intersection: a shrinking paired count is a defect to surface, not a
+    # population to quietly compute on.
+    common, arm_aligned, base_aligned = pair_rows(
+        arm_rows, baseline_rows, arm_source="arm", baseline_source="baseline"
+    )
+    arm_correct = [bool(r.get("correct")) for r in arm_aligned]
+    base_correct = [bool(r.get("correct")) for r in base_aligned]
 
     mc = mcnemar_test(arm_correct, base_correct)
     boot = bootstrap_ci_delta(
@@ -853,8 +912,23 @@ def run_suite(
                     )
                 cells.append(cell)
 
-    write_matrix(out_root, config, cells)
-    write_combined_summary(out_root, cells)
+    matrix_json = write_matrix(out_root, config, cells)
+    combined_json = write_combined_summary(out_root, cells)
+
+    # Cover every generated artifact, not just the per-item rows. The headline
+    # figures live in matrix.json; leaving it out of the manifest meant
+    # tools/verify_manifests.py passed on a tampered result file.
+    for extra in (
+        matrix_json,
+        out_root / "matrix.md",
+        combined_json,
+        out_root / "combined_summary.md",
+        out_root / "run_config.json",
+        out_root / "trusted_benchmark_manifest.json",
+    ):
+        if extra.exists() and extra not in output_files:
+            output_files.append(extra)
+
     manifest_path = write_output_manifest(
         out_root / "manifest.sha256", output_files, base_dir=out_root
     )

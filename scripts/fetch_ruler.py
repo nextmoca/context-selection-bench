@@ -62,6 +62,10 @@ TOKENIZER_TYPE = "gemini"
 TOKENIZER_PATH = "gemini-3.1-pro-preview"
 MODEL_TEMPLATE_TYPE = "base"  # identity template: no chat wrapper
 
+# The tokenizer API RULER's generators actually call. Asserted against the
+# pinned upstream class before patching, and against our shim.
+REQUIRED_TOKENIZER_METHODS = {"text_to_tokens", "tokens_to_text"}
+
 # The generator's Gemini tokenizer uses the deprecated google.generativeai SDK.
 # Swap it for the unified google-genai SDK (behavior identical: an exact
 # server-side token count driving RULER's haystack-size search).
@@ -76,11 +80,14 @@ class GeminiTokenizer:
         self.model_path = model_path
         self.client = _genai.Client(api_key=_os.environ["GEMINI_API_KEY"])
 
-    def text2tokens(self, text):
+    # RULER's generators call `text_to_tokens` / `tokens_to_text`; every
+    # upstream tokenizer class at the pinned commit uses those names. Naming
+    # them anything else makes every task fail with AttributeError.
+    def text_to_tokens(self, text):
         result = self.client.models.count_tokens(model=self.model_path, contents=text)
         return list(range(result.total_tokens))
 
-    def tokens2text(self, tokens):
+    def tokens_to_text(self, tokens):
         raise NotImplementedError("Gemini has no offline detokenizer")
 # --- end patch ---
 '''
@@ -120,7 +127,17 @@ def patch_tokenizer(ruler: Path) -> None:
     tok = ruler / "scripts" / "data" / "tokenizer.py"
     text = tok.read_text(encoding="utf-8")
     if "fetch_ruler.py: use the unified google-genai SDK" in text:
-        return  # already patched
+        # Already patched -- but the pre-1.1 shim carried this same marker while
+        # defining the WRONG method names, so a clone patched by an older version
+        # would be skipped here and stay broken. Verify the API, not the marker.
+        missing = {m for m in REQUIRED_TOKENIZER_METHODS if f"def {m}(" not in text}
+        if not missing:
+            return
+        raise SystemExit(
+            f"error: {tok} carries an older fetch_ruler.py patch that is missing "
+            f"{sorted(missing)}. That shim cannot generate data. Delete the RULER "
+            "clone (or re-run without --skip-clone) so it can be re-patched."
+        )
     marker = "class GeminiTokenizer"
     idx = text.find(marker)
     if idx == -1:
@@ -128,6 +145,20 @@ def patch_tokenizer(ruler: Path) -> None:
             f"Could not find GeminiTokenizer in {tok}; upstream may have drifted "
             f"from the pinned commit {RULER_PINNED_COMMIT}. Apply the SDK swap by hand."
         )
+    # The upstream class we are replacing defines the API the generators call.
+    # Assert our shim provides exactly those names, so a future upstream rename
+    # fails here rather than silently breaking every task.
+    required = REQUIRED_TOKENIZER_METHODS
+    upstream_has = {m for m in required if f"def {m}(" in text[idx:]}
+    if upstream_has != required:
+        raise SystemExit(
+            f"upstream GeminiTokenizer at {RULER_PINNED_COMMIT} does not define "
+            f"{sorted(required - upstream_has)}; the pinned commit has drifted."
+        )
+    missing = {m for m in required if f"def {m}(" not in _TOKENIZER_PATCH}
+    if missing:
+        raise SystemExit(f"internal error: shim is missing {sorted(missing)}")
+
     # Replace from the class definition to the end of file (it is the last class).
     tok.write_text(text[:idx] + _TOKENIZER_PATCH.lstrip("\n"), encoding="utf-8")
     print(f"patched {tok}", file=sys.stderr)
@@ -156,6 +187,22 @@ def generate(ruler: Path, out_root: Path, *, num_samples: int, seed: int) -> Non
                 "--subset", "test",
             ], cwd=ruler / "scripts" / "data")
 
+            # prepare.py swallows generator failures and still prints a
+            # success-looking line, so verify the artifact rather than trust it.
+            if not test_jsonl.exists():
+                raise SystemExit(
+                    f"error: {label}/{task} produced no {test_jsonl}. The generator "
+                    "failed even though prepare.py reported success; re-run with the "
+                    "command above visible to see the underlying error."
+                )
+            got = _line_count(test_jsonl)
+            if got != num_samples:
+                raise SystemExit(
+                    f"error: {label}/{task} produced {got} rows, expected {num_samples} "
+                    f"({test_jsonl})."
+                )
+            print(f"ok {label}/{task}: {got} rows", file=sys.stderr)
+
 
 def _line_count(path: Path) -> int:
     with path.open("rb") as fh:
@@ -182,11 +229,30 @@ def main() -> int:
         file=sys.stderr,
     )
 
+    # prepare.py runs with cwd=<ruler>/scripts/data, so a relative --out would
+    # resolve inside the RULER clone rather than the caller's directory.
+    args.out = args.out.resolve()
+    args.work = args.work.resolve()
+
     ruler = (args.work / "RULER") if args.skip_clone else clone_ruler(args.work)
     download_corpora(ruler)
     patch_tokenizer(ruler)
     generate(ruler, args.out, num_samples=args.num_samples, seed=args.seed)
-    print(f"done -> {args.out}/<length>/<task>/test.jsonl", file=sys.stderr)
+
+    expected = len(LENGTHS) * len(RULER_TASKS)
+    produced = [
+        args.out / label / task / "test.jsonl"
+        for _, label in LENGTHS for task in RULER_TASKS
+    ]
+    bad = [p for p in produced if not p.exists() or _line_count(p) != args.num_samples]
+    if bad:
+        return _fail(
+            f"{len(bad)} of {expected} cells are missing or short: "
+            + ", ".join(str(p) for p in bad[:5])
+            + ("..." if len(bad) > 5 else "")
+        )
+    print(f"done -> {expected} cells x {args.num_samples} rows at "
+          f"{args.out}/<length>/<task>/test.jsonl", file=sys.stderr)
     return 0
 
 
