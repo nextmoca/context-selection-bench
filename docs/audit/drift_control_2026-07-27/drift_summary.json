@@ -1,0 +1,44 @@
+{
+  "seed": 20260727,
+  "n_items": 50,
+  "n_evaluations": 150,
+  "date_original": "2026-07-17",
+  "date_rerun": "2026-07-27",
+  "index_identity_mismatches": 0,
+  "per_arm": {
+    "full_context": {
+      "n": 50,
+      "exact_score_agreement": 0.8,
+      "exact_em_agreement": 0.88,
+      "mean_signed_shift_score": -0.018,
+      "wilcoxon_p": 0.6017,
+      "em_flips_0to1": 3,
+      "em_flips_1to0": 3,
+      "fallback_rate_orig": 0.0,
+      "fallback_rate_new": 0.0
+    },
+    "needlepath": {
+      "n": 50,
+      "exact_score_agreement": 0.88,
+      "exact_em_agreement": 0.94,
+      "mean_signed_shift_score": -0.035,
+      "wilcoxon_p": 0.2436,
+      "em_flips_0to1": 1,
+      "em_flips_1to0": 2,
+      "fallback_rate_orig": 0.48,
+      "fallback_rate_new": 0.48
+    },
+    "compresr": {
+      "n": 50,
+      "exact_score_agreement": 0.92,
+      "exact_em_agreement": 0.94,
+      "mean_signed_shift_score": -0.055,
+      "wilcoxon_p": 0.1306,
+      "em_flips_0to1": 0,
+      "em_flips_1to0": 3,
+      "fallback_rate_orig": 0.0,
+      "fallback_rate_new": 0.0
+    }
+  },
+  "verdict": "ESCALATED: answering-model instability on the continuous metric; primary binarized metric stable"
+}

@@ -61,7 +61,7 @@ with no statistically detectable aggregate difference from ungated selection); t
 are insufficient because the winning and losing regimes occupy the same token scale.
 \textbf{(4)} We treat reproducibility as a result: a public-harness (implementation-path)
 replication reproduced the primary RULER finding (the selection layer beats full context at
-both lengths under Holm-corrected per-length McNemar, pooled $+4.99\pp$, ${\sim}32\%$ fewer
+both lengths under Holm-corrected per-length McNemar, pooled $+4.62\pp$, $32.7\%$ fewer
 tokens, lowest end-to-end cost) with the system reached only through a versioned hosted
 adapter and no engine code in the harness. The extraction and rerun are ours, so the
 independence established is of the code path, not the operator; a fully independent rerun, which
@@ -331,7 +331,7 @@ ${\sim}0.1\pp$ from differences of the rounded per-arm averages in Table~\ref{ta
 significance denominator ($26$) counts all $13\times2$ task/length cells; the two excluded
 \texttt{niah\_single\_3} cells are dead-zero across arms and never significant. The cell-level
 McNemar counts are exploratory and uncorrected for multiple comparisons; this run reports no
-pooled paired test, so the confirmatory aggregate paired test for the headline
+pooled paired test, so the secondary aggregate paired test for the headline
 \NP{}-vs-full-context comparison is the replication's pooled McNemar
 (Section~\ref{sec:replication}). Headroom $>$ CPC is the reason we make no categorical
 selection-vs-compression claim.}
@@ -346,15 +346,16 @@ removing distractor context helped answers slightly on average without a cell-by
 LLMLingua-2 averages below full context at both lengths: rewriting the haystack lost material.
 \NP{} versus CPC is $+15.9/+8.6\pp$ with $9$ of $10$ significant cells favoring \NP{}. These
 cell-level counts are exploratory and uncorrected for multiplicity; we treat the pooled
-replication test (Section~\ref{sec:replication}) as the confirmatory aggregate for the headline
+replication test (Section~\ref{sec:replication}) as the secondary aggregate for the headline
 comparison. Including the artifact task \texttt{niah\_single\_3}, the $13$-task
 \NP{}-vs-full-context deltas are $+5.3/+4.4\pp$ (versus $+5.8/+4.7\pp$ at $12$ tasks); the ordering
 and direction are unchanged (Appendix~\ref{app:ruler}).
 
 \paragraph{Latency and cost.} The two selection and compression steps differ by orders of
-magnitude in preparation cost. Table~\ref{tab:ruler-latency} reports per-item preparation latency
-in the \texttt{in\_process} class. \NP{}'s selection is a sub-$15$\,ms CPU operation, roughly
-$400\times$ faster than CPC's GPU compression and needing no GPU. On tokens, \NP{} reduces the
+magnitude in preparation cost. Table~\ref{tab:ruler-latency} reports \emph{mean} per-item
+preparation latency in the \texttt{in\_process} class. \NP{}'s selection is a sub-$15$\,ms CPU
+operation, roughly $400\times$ faster than CPC's GPU compression (a ratio of means) and needing
+no GPU. On tokens, \NP{} reduces the
 \emph{full prompt} by $23.1\%$ at $8$K and $37.3\%$ at $16$K (we report full-prompt reduction,
 the share of the billed prompt removed, not the larger internal state-pool figure).
 
@@ -366,14 +367,19 @@ the share of the billed prompt removed, not the larger internal state-pool figur
 Arm & $8$K & $16$K & Hardware / note \\
 \midrule
 \NP{}        & $8.5$\,ms & $14.5$\,ms & CPU; selection step only \\
-Headroom     & $1.13$\,s & $2.16$\,s  & CPU; bimodal (worst item $7.3$\,s) \\
+Headroom     & $1.13$\,s & $2.16$\,s  & CPU; bimodal (see caption) \\
 CPC          & $3.24$\,s & $6.93$\,s  & A10G GPU \\
 LLMLingua-2  & $12.6$\,s & $32.4$\,s  & CPU \\
 \bottomrule
 \end{tabular}
-\caption{Per-item preparation latency, \texttt{in\_process} class (local compute, no network),
-excluding the downstream model call. \NP{}'s $8.5$--$14.5$\,ms is the \texttt{in\_process}
-reference figure used elsewhere in this paper.}
+\caption{\emph{Mean} per-item preparation latency, \texttt{in\_process} class (local compute, no
+network), excluding the downstream model call. Every cell is a mean, not a representative item:
+these distributions are right-skewed and the mean exceeds the median in every arm we measured, so
+no cell should be read as what a typical item costs. Headroom's figure in particular blends two
+modes, a fast lossless-fold path and a slower ML-inference path, and its worst task-cell mean is
+$7.3$\,s; a single ``Headroom compression latency'' number should not be cited without that
+split. \NP{}'s $8.5$--$14.5$\,ms is the \texttt{in\_process} reference figure used elsewhere in
+this paper.}
 \label{tab:ruler-latency}
 \end{table}
 
@@ -557,16 +563,26 @@ precisely so that anyone can perform it, and we invite exactly that.
 
 By the program's primary test (two co-primary per-length McNemar tests on paired binarized
 correctness, Holm-corrected at family $\alpha{=}0.05$), \NP{} beats full context at both lengths
-($+4.64\pp$, $p{=}0.014$ at $8$K; $+5.33\pp$, $p{=}0.003$ at $16$K; both significant after Holm).
+($+4.48\pp$, raw $p{=}0.031$ at $8$K; $+4.77\pp$, raw $p{=}0.022$ at $16$K; Holm-adjusted $p{=}0.044$ at both lengths, significant at both lengths under Holm).
 We do not claim preregistration: McNemar on binarized correctness has been the program's standing
 primary test since the RULER protocol was fixed (2026-07-07, before this run), and binarizing at
 the reference threshold (RULER score $\ge 1.0$) mirrors the benchmark's own reference metric. As secondary,
-descriptive statistics, the pooled McNemar is $p{=}0.0001$ and the paired-bootstrap $95\%$ CI on
-the pooled accuracy delta is $+4.99\pp$ $[+3.66,+6.32]$; our stated sensitivity analysis (a
-paired bootstrap on the continuous, unbinarized scores) gives $+2.50\pp$ $[+1.27,+3.73]$, the
-same direction. \NP{} cuts average input tokens ${\sim}32\%$ ($11{,}784 \to 7{,}977$ per item);
-this holds \emph{despite} a $40\%$ fallback rate, since fallback items save zero tokens and are
-scored identically to full context, so the lift comes entirely from the engaged selections. \NP{}
+descriptive statistics, the pooled McNemar is $p{=}0.0013$ and the paired-bootstrap $95\%$ CI on
+the pooled accuracy delta (the mean fractional score, continuous and unbinarized) is
+$+4.62\pp$ $[+3.32,+5.94]$; the corresponding paired bootstrap on the \emph{binarized}
+correctness that the primary McNemar tests gives $+2.11\pp$ $[+0.89,+3.36]$, the
+same direction. \NP{} cuts average input tokens $32.7\%$ ($11{,}788 \to 7{,}929$ per item);
+this holds \emph{despite} a $40\%$ fallback rate. Fallback here is an evidence-coverage
+obligation, not the operating point's envelope gate (which runs in shadow at \oppoint{} and
+emits telemetry only): an item falls back when the selector cannot demonstrate it captured the
+required evidence even after escalating the budget ladder, and all $994$ fallback rows carry
+\texttt{selection\_safe=false} with an evidence or answerability reason. Fallback items save
+exactly zero tokens, verified on all $994$: their billed input-token count is identical to full
+context, item for item. Their \emph{prompts} are likewise identical, but their scores are not
+always identical ($87.5\%$ agree on the continuous score, $93.7\%$ on binarized correctness),
+because separate model calls on identical prompts can diverge, the same non-determinism measured
+in Section~\ref{sec:defect}. The lift therefore comes entirely from the engaged selections, which
+cut input tokens $55.9\%$. \NP{}
 is also the cheapest arm end-to-end (Table~\ref{tab:replication}), and its selection latency over
 the adapter is reported in Section~\ref{sec:latency}. The result lands inside the original
 $+5.8/+4.7\pp$ band from Section~\ref{sec:ruler}: the primary finding survives a fresh day, a new
@@ -579,21 +595,121 @@ harness, and the customer-facing HTTP path.
 \toprule
 Arm & $8$K: acc.\ $\Delta$ ($p$) & $16$K: acc.\ $\Delta$ ($p$) & Holm @ $0.05$ & Tokens / cost \\
 \midrule
-\NP{}    & $+4.64\pp$ ($0.014$) & $+5.33\pp$ ($0.003$) & both significant & $-32\%$ / \$15.67 \\
-Compresr & $+1.89\pp$ ($0.101$) & $+1.02\pp$ ($0.871$) & neither          & $-22\%$ / \$20.70 \\
-full     & (ref.)               & (ref.)               & (ref.)           & (ref.) / \$24.53 \\
+\NP{}    & $+4.48\pp$ ($0.031$) & $+4.77\pp$ ($0.022$) & both significant ($0.044$) & $-32.7\%$ / \$15.67 \\
+Compresr & $+1.91\pp$ ($0.113$) & $+1.25\pp$ ($0.742$) & neither          & $-22.6\%$ / \$20.70 \\
+full     & (ref.)               & (ref.)               & (ref.)           & (ref.) / \$23.29 \\
 \bottomrule
 \end{tabular}
-\caption{Public-harness replication ($N{=}2{,}600$), \NP{} reached only through the hosted adapter
+\caption{Public-harness replication ($N{=}2{,}468$; see Section~\ref{sec:defect}), \NP{} reached only through the hosted adapter
 (\oppoint{}). \emph{Primary test:} two co-primary per-length McNemar tests on paired binarized
 correctness, Holm-corrected at family $\alpha{=}0.05$ (\NP{} significant at both lengths; Compresr
-at neither). \emph{Secondary/descriptive:} pooled McNemar (\NP{} $p{=}0.0001$; Compresr
-$p{=}0.193$) and the paired-bootstrap $95\%$ CI on the pooled accuracy delta (\NP{} $+4.99\pp$
-$[+3.66,+6.32]$; Compresr $+1.45\pp$ $[+0.09,+2.82]$). \emph{Sensitivity:} paired bootstrap on
-continuous scores (\NP{} $+2.50\pp$ $[+1.27,+3.73]$; Compresr $+0.88\pp$ $[-0.38,+2.12]$). \NP{} is
+at neither; Holm-adjusted $p{=}0.044$ for \NP{} at both lengths). \emph{Secondary/descriptive:}
+pooled McNemar (\NP{} $p{=}0.0013$; Compresr $p{=}0.166$) and the paired-bootstrap $95\%$ CI on
+the pooled accuracy delta, the continuous mean fractional score (\NP{} $+4.62\pp$
+$[+3.32,+5.94]$; Compresr $+1.58\pp$ $[+0.11,+3.05]$). Per length, the same continuous delta is
+\NP{} $+4.48\pp$ $[+2.59,+6.36]$ at $8$K and $+4.77\pp$ $[+2.87,+6.67]$ at $16$K; Compresr
+$+1.91\pp$ $[-0.01,+3.90]$ and $+1.25\pp$ $[-0.78,+3.34]$, both straddling zero, consistent with
+no statistically detectable difference at either length. \emph{On the binarized correctness the
+primary test uses:} paired bootstrap (\NP{} $+2.11\pp$ $[+0.89,+3.36]$; Compresr $+0.97\pp$
+$[-0.37,+2.31]$). \NP{} is
 the only arm that improves accuracy and reduces tokens with support from the primary test.}
 \label{tab:replication}
 \end{table}
+
+\subsection{A row-duplication defect in the replication harness, and what it cost}
+\label{sec:defect}
+
+The replication run reported above covers $N{=}2{,}468$ items per arm, not the $2{,}600$ its
+protocol specifies. This section states why, because the shortfall is a defect of ours and the
+corrected figures differ from those first published.
+
+\paragraph{The defect.} The RULER harness resumed an interrupted run by keying its cache on
+RULER's own \texttt{index} field. That field is not unique within a task's $100$ sampled rows.
+On resume, every position sharing an \texttt{index} received the \emph{same} row object, which
+was then mutated in place and written once per position, so byte-identical copies of one
+surviving row replaced the evaluations they displaced. Each affected cell still contained
+exactly $100$ rows, so nothing downstream complained. Across the run, $396$ of $7{,}800$ rows in
+$42$ of $78$ cells were lost this way. The displaced evaluations were overwritten before anything
+was written to disk and are not recoverable from the deposit, from object storage, or from run
+logs. We chose not to re-evaluate the missing items; the reason is in the drift control below.
+
+\paragraph{What the loss does and does not do.} The loss is symmetric: in every affected cell all
+arms lost the identical position set, so the comparison remains matched item-for-item and the
+paired tests are computed on a genuinely paired population. It is not biased within task: items
+with a duplicated \texttt{index} score no differently from unique-\texttt{index} items once task
+is controlled for (mean within-task difference $+0.0006$, Wilcoxon $p{=}0.88$ across the $14$
+affected task/length cells, measured on \fn{ruler\_v1}, which is unaffected). It is, however,
+\emph{task-reweighted}: collisions concentrate in the hard \texttt{niah} tasks, which lose
+proportionally more items, and those are the tasks where the selection arm's advantage is
+largest. That reweighting is the most likely reason the pooled delta moved down, from
+$+4.99\pp$ on the damaged population to $+4.62\pp$ on the $2{,}468$ items actually evaluated.
+Direction and significance are unchanged: \NP{} remains significant at both lengths under Holm
+and Compresr remains non-significant at both.
+
+\paragraph{The flagship RULER run is unaffected.} \fn{ruler\_v1} stores one file per position with
+all arms inside it, so no join by \texttt{index} occurs and no resume path could collapse it.
+We verified this directly: $2{,}600$ files, zero duplicate or missing positions.
+
+\paragraph{Dataset regeneration matches on every fingerprint we can check.} Ten days after the original run, on different
+hardware, we regenerated the RULER data from the pinned generator (commit
+\texttt{38da79d7}, seed $42$) and compared it against every surviving row. All $26$ task/length
+cells and all $7{,}404$ surviving rows matched on four independent fingerprints: RULER's
+\texttt{index}, the expected answer, the generated haystack length, and the tokenized prompt
+length recomputed through the harness's own request-construction path. A $100.00\%$ match on all
+four. We state the limit precisely: the deposit stores no input text and no input hash, so
+byte-identity of the haystacks cannot be verified retrospectively, and four agreeing fingerprints
+are strong evidence rather than proof. Future runs persist a per-row SHA-256 of the rendered
+input so that a later regeneration is checkable byte-for-byte; the digest of the regenerated
+corpus used here is recorded in the release notes.
+
+\paragraph{The model's outputs are not, and we measured that.} Before deciding whether to
+re-evaluate the missing items, we re-ran a seeded sample of $50$ items that \emph{had} survived,
+across all three arms ($150$ evaluations), under identical configuration ten days later, and
+compared each item's new score with its original. Item-level exact agreement on the continuous
+score was $80\%$ for full context, $88\%$ for \NP{} and $92\%$ for Compresr; on the binarized
+correctness the primary test uses, $88\%$, $94\%$ and $94\%$. Mean signed shifts were
+$-0.018$, $-0.035$ and $-0.055$, and no paired test reached significance (Wilcoxon $p{=}0.60$,
+$0.24$, $0.13$). Selection behaviour was unchanged: \NP{}'s fallback rate was $48.0\%$ before and
+after, Compresr's $0\%$ both times. Disagreements clustered by item rather than by arm ($35$ of
+$50$ items had no arm disagree) and concentrated in fractionally scored tasks ($36\%$ versus
+$9\%$). Because the full-context arm performs no selection at all, its movement is attributable
+to the answering model rather than to any component of ours.
+
+We report this descriptively and draw no inferential conclusion from it: $n{=}50$ per arm cannot
+separate ordinary non-determinism at temperature $0$ from a genuine model-side change, and our
+decision threshold for ``material'' drift was chosen by us rather than derived from a test. The
+practical consequence is what governed the decision: re-evaluating the $132$ missing items per
+arm would have replaced a disclosed, characterised population limitation with an undisclosed
+one, namely a population whose rows were measured on two different dates with a known $80$--$92\%$
+item-level agreement between them. We therefore report the $2{,}468$ items that were actually
+evaluated on a single date, and disclose the shortfall here.
+
+\paragraph{What the correction tooling found about itself.} Three results from building the fix
+are worth stating, because each is evidence about how the harness was constructed rather than
+about any number.
+
+First, the deposited run was complete. The corrected aggregation refuses to compute on a missing
+cell rather than skipping it, and on re-running it against the deposit the corrected figures were
+byte-identical to those computed before that check existed. Every selected
+length/task/arm cell was present; the completeness guard never fired on real data. That is a
+negative result, and it is the reason the population question reduces to the $396$ destroyed rows
+and nothing else.
+
+Second, a guard inventory over the package found that the harness's pre-existing guards are all
+reachable from a production path, and that the two unreachable ones were both introduced by this
+release's own fix for the defect they were meant to prevent. They existed only in their unit
+tests. Both are now wired, and a structural test asserts every guard has a production call site,
+because a guard that runs only in its own tests protects nothing while reading as though it does.
+
+Third, the deposit's artifact schema could not support the reproducibility claim we wanted to
+make. It records derived quantities but not the rendered input or a hash of it, so the
+regeneration check above is an inference from four fingerprints rather than a byte comparison.
+Persisting a per-row input hash is a schema change, not a fix, and it is why the claim is scoped
+the way it is.
+
+Taken together the two checks give a sharper statement of what this harness can promise than an
+unqualified reproducibility claim: the inputs reproduce on every fingerprint we can check, and the
+model outputs do not reproduce exactly.
 
 \subsection{A commercial-compressor arm, read honestly}
 \label{sec:compresr}
@@ -604,11 +720,12 @@ the program's primary test. We are explicit about the test hierarchy, because th
 can diverge and a reader must not think the test was chosen after seeing the answer. The primary
 test is the standing program convention (two co-primary per-length McNemar tests on paired
 binarized correctness, Holm-corrected), and Compresr clears it at neither length ($8$K
-$p{=}0.101$, $16$K $p{=}0.871$; pooled $p{=}0.193$, secondary). Descriptively, its pooled accuracy
-delta is $+1.45\pp$ with a bootstrap CI $[+0.09,+2.82]$ that marginally excludes zero; the
-continuous-score sensitivity analysis gives $+0.88\pp$ $[-0.38,+2.12]$, straddling zero. We
-therefore characterize the arm as parity to slightly positive, not statistically significant under
-the primary test, at ${\sim}22\%$ fewer tokens, the best showing of any compression-family arm
+$p{=}0.113$, $16$K $p{=}0.742$; pooled $p{=}0.166$, secondary). Descriptively, its pooled accuracy
+delta is $+1.58\pp$ with a bootstrap CI $[+0.11,+3.05]$ that marginally excludes zero; the
+companion bootstrap on the binarized correctness that the primary test uses gives
+$+0.97\pp$ $[-0.37,+2.31]$, straddling zero. We therefore characterize the arm as parity to
+slightly positive, not statistically significant under the primary test, at $22.6\%$ fewer
+tokens, the best showing of any compression-family arm
 in the program, and still without a statistically supported lift. \NP{} is the only arm that
 improves accuracy and reduces tokens with support from the primary test; no arm ties \NP{}. We
 never cite the Compresr figure beside the vendor's marketing without this label. Compresr is
@@ -767,7 +884,10 @@ We state the limitations plainly.
   ($52.2$/$77.1$\,ms); a hosted production deployment adds wide-area transit and is measured in the
   \texttt{remote\_api\_*} classes.
   \item \textbf{Fallback rate.} The replication run has a $40\%$ fallback rate; those items save no
-  tokens and score as full context, so the reported lift is entirely from engaged selections.
+  tokens, verified item by item on all $994$: their billed input-token count is identical to full
+  context. Their prompts are identical too, but their scores are not always identical ($87.5\%$
+  agree on the continuous score, $93.7\%$ on binarized correctness), because separate model calls
+  on identical prompts can diverge. The reported lift is entirely from engaged selections.
   \item \textbf{Document-QA and tool-calling controls.} On a reproducible re-run, SQuAD~v2 and BFCL
   show no statistically detectable difference from full context (Section~\ref{sec:defn}); these are
   within-run observations about evidence and schema survival, not claims about absolute quality, and
@@ -855,10 +975,10 @@ AppWorld NP vs.\ ACON cost & $-\$0.0389$/ep; CI $[-0.0642,-0.0137]$ & \fn{appwor
 Run-to-run task flip & ${\sim}39\%$ & \fn{gate\_probe\_v1} \\
 Gate AppWorld stand-down (mode on) & $208/208$, byte-identical & \fn{gate\_appworld\_v1} \\
 Gate RULER engage / no detectable diff. & $89.0\%$; $+0.0021$ $[-0.0014,+0.0059]$ & \fn{gate\_ruler\_v1} \\
-Replication NP vs full & $+4.99\pp$ $[+3.66,+6.32]$; $p{=}0.0001$ & \oppoint{}; \fn{ruler\_repl\_v1} \\
-Replication per-length McNemar $p$ & NP $0.014$/$0.003$; Compresr $0.101$/$0.871$ & \fn{ruler\_repl\_v1} \\
-Replication tokens / cost & $-32\%$ ($11784{\to}7977$); \$15.67 vs \$24.53 & \fn{ruler\_repl\_v1} \\
-Compresr vs full & $+1.45\pp$ $[+0.09,+2.82]$; $p{=}0.193$ n.s.; $-22\%$ & \fn{ruler\_repl\_v1} \\
+Replication NP vs full & $+4.62\pp$ $[+3.32,+5.94]$; $p{=}0.0013$ & \oppoint{}; \fn{ruler\_repl\_v1} \\
+Replication per-length McNemar $p$ & NP $0.031$/$0.022$ (Holm $0.044$/$0.044$); Compresr $0.113$/$0.742$ & \fn{ruler\_repl\_v1} \\
+Replication tokens / cost & $-32.7\%$ ($11788{\to}7929$); \$15.67 vs \$23.29 & \fn{ruler\_repl\_v1} \\
+Compresr vs full & $+1.58\pp$ $[+0.11,+3.05]$; $p{=}0.166$ n.s.; $-22.6\%$ & \fn{ruler\_repl\_v1} \\
 \NP{} adapter latency (replication) & median $52.2$/$77.1$\,ms (per-item \fn{client\_latency\_ms}) & \fn{ruler\_repl\_v1} \\
 Compresr latency decomposition & $252/431$ $\to$ $229/408$ $\to$ $121/255$\,ms & \fn{csbench.latency} \\
 Compresr transport baseline / floor & $23.1$\,ms / $98.8{\to}75.6$\,ms & \fn{csbench.latency} \\
@@ -1011,12 +1131,29 @@ threshold keeps the primary test faithful to the benchmark's own reference metri
 
 \paragraph{Secondary and sensitivity statistics.} Pooled McNemar and paired-bootstrap confidence
 intervals ($10{,}000$ resamples, seed $42$) on the accuracy (mean fractional score) delta are
-reported as secondary, descriptive statistics. A paired bootstrap on the \emph{continuous}
-(unbinarized) scores is the stated sensitivity analysis, reported alongside the binarized primary
-result wherever the two could diverge (Sections~\ref{sec:replication}, \ref{sec:compresr}).
+reported as secondary, descriptive statistics. The pooled accuracy delta is itself computed on the
+\emph{continuous} (unbinarized) mean fractional score; a paired bootstrap on the
+\emph{binarized} correctness that the primary McNemar tests is reported alongside it wherever
+the two could diverge (Sections~\ref{sec:replication}, \ref{sec:compresr}).
 Cell-level McNemar tallies (Section~\ref{sec:ruler}) are exploratory and uncorrected for
-multiplicity; the confirmatory aggregate test for the headline comparison is the pooled replication
+multiplicity. The primary test remains the pair of co-primary per-length McNemar tests,
+Holm-corrected; the pooled replication McNemar is secondary and descriptive throughout. We flag
+this explicitly because the corrected figures make the pooled result ($p{=}0.0013$) numerically
+stronger than the Holm-adjusted per-length result ($p{=}0.044$ at both lengths), and promoting the
+pooled test would be selecting the more favourable statistic after seeing both. The pooled replication
 McNemar.
+
+\paragraph{Bootstrap determinism and iteration order.} A paired bootstrap draws resample indices
+into the concatenated per-item array, so the interval depends not only on the data and the seed
+but on the order in which items are iterated. Nothing in the released harness pinned that order,
+which made the intervals deterministic by accident rather than by construction; the aggregation
+tool now pins it explicitly (tasks sorted, lengths ascending). We report this because it changes
+what a replicator should expect: an independent re-run that iterates items in a different order
+will reproduce the point estimates and the McNemar $p$-values exactly, and should expect the
+bootstrap interval bounds to move in roughly the third decimal without any significance verdict
+changing. That drift is the expected behaviour of a resampling estimator, not a failed
+reproduction. We found this because a byte-identity gate on the corrected table failed after an
+unrelated change altered task iteration order.
 
 \paragraph{Pairing.} Items are paired by row position, not by a non-unique index field, with a
 per-position alignment assertion; every task/length cell is verified to contain the same number of
