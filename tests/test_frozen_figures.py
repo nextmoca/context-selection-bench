@@ -17,7 +17,7 @@ import pathlib
 
 import pytest
 
-from tests.frozen_figures import (
+from frozen_figures import (
     FROZEN_FIGURES,
     SUPERSEDED,
     SUPERSEDED_ALLOWANCE,
