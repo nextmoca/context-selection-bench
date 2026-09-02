@@ -146,6 +146,20 @@ _EXCLUDE_PATH = re.compile(
     r"(^|/)(signals|_tmp[^/]*|[^/]*co_configs|task_[^/]*|full_history|acon|needlepath)(/|$)"
     r"|(trajectory|env_history|llm_history|appworld_trajectory)"
 )
+# Arm directories under items/<length>/ are result data, never engine dumps. The
+# `needlepath` segment in the pattern above targets engine scratch directories,
+# and matching it against the arm directory `items/<length>/needlepath/` dropped
+# every Needlepath per-item row from the RULER deposits (ruler_v1, ruler_repl_v1)
+# while the full_context and compresr arms shipped. Arm segments are masked
+# before the pattern runs, so the exclusion cannot see them.
+_ITEMS_ARM_DEPTH = 2  # items/<length>/<arm>/...
+
+
+def _excluded_path(rel: Path) -> bool:
+    parts = list(rel.parts)
+    if len(parts) > _ITEMS_ARM_DEPTH and parts[0] == "items":
+        parts[_ITEMS_ARM_DEPTH] = "arm"
+    return bool(_EXCLUDE_PATH.search("/".join(parts)))
 
 
 def _load_leak_patterns():
@@ -229,7 +243,7 @@ def build_ruler(src: Path, out_run: Path) -> int:
         if not f.is_file():
             continue
         rel = f.relative_to(src)
-        if _EXCLUDE_PATH.search(str(rel)):
+        if _excluded_path(rel):
             continue
         if f.suffix == ".jsonl":
             dst = out_run / rel
@@ -469,6 +483,8 @@ def main() -> int:
 
     write_manifest(out_run)
     scrub(out_root)
+    if n == 0:
+        _fail(f"{args.run_id}: zero per-item records under {args.src} -- an empty source is not a deposit")
     print(f"build_deposit: {args.run_id} OK - {n} records, manifest + scrub clean")
     return 0
 
