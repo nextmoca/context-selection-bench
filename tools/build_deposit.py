@@ -234,8 +234,7 @@ def clean_ruler_record(rec: dict) -> dict:
         _fail("non-dict item record")
     out = {k: v for k, v in rec.items() if k in _RULER_ITEM_ALLOW and k not in _PROMPTISH}
     for field in _DIGEST_FIELDS:
-        value = out.get(field)
-        if value is not None and not (isinstance(value, str) and _DIGEST_RE.match(value)):
+        if field in out and not (isinstance(out[field], str) and _DIGEST_RE.fullmatch(out[field])):
             _fail(f"{field} is not a lowercase sha256 hex digest; refusing to ship it")
     if rec.get("task") in _QA_TASKS:
         for f in _QA_HASH_FIELDS:
@@ -498,7 +497,7 @@ def main() -> int:
     write_manifest(out_run)
     scrub(out_root)
     if n == 0:
-        _fail(f"{args.run_id}: no per-item records or aggregate artifacts were assembled from {args.src}; nothing to deposit")
+        _fail(f"{args.run_id}: no per-item records were assembled from {args.src} for run type {args.run_type}; nothing to deposit")
     print(f"build_deposit: {args.run_id} OK - {n} records, manifest + scrub clean")
     return 0
 

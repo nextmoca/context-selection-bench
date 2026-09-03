@@ -59,7 +59,7 @@ def test_verification_hashes_survive_the_allowlist():
 import pytest
 
 
-@pytest.mark.parametrize("bad", ["RAW PROMPT TEXT", "A" * 64, "ab" * 31, 12345, "0" * 65])
+@pytest.mark.parametrize("bad", ["RAW PROMPT TEXT", "A" * 64, "ab" * 31, 12345, "0" * 65, None, "0" * 64 + "\n"])
 def test_digest_fields_must_be_lowercase_sha256_hex(bad):
     rec = {"arm": "needlepath", "task": "cwe", "score": 0.5, "prompt_sha256": bad}
     with pytest.raises(SystemExit):
