@@ -1,8 +1,14 @@
 """Arm directories under items/<length>/ are data, not engine scratch (needlepath arm regression)."""
 
+import importlib.util
 from pathlib import Path
 
-from tools import build_deposit as bd
+# tools/ is a script directory, not a package: load the builder by path so the
+# suite runs the way CI runs it (plain `pytest -q` from the repository root).
+_SPEC = importlib.util.spec_from_file_location(
+    "build_deposit", Path(__file__).resolve().parents[1] / "tools" / "build_deposit.py")
+bd = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(bd)
 
 
 def test_needlepath_arm_rows_are_not_excluded():
@@ -43,7 +49,7 @@ def test_zero_records_is_a_failure_not_a_deposit(tmp_path: Path, monkeypatch):
     out.mkdir()
     proc = subprocess.run([sys.executable, "tools/build_deposit.py", "--run-type", "ruler", "--run-id", "x",
                            "--src", str(src), "--out", str(out)], capture_output=True, text=True,
-                          cwd=Path(bd.__file__).resolve().parents[1])
+                          cwd=Path(__file__).resolve().parents[1])
     assert proc.returncode != 0
     assert "nothing to deposit" in (proc.stdout + proc.stderr)
 
