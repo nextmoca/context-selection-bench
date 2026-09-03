@@ -24,16 +24,10 @@ the replication deposit.
   (`item_sha256`, `expected_answer_sha256`, `prompt_sha256`, `input_sha256`).
 
 ### Fixed
-- The deposit builder's scratch-directory exclusion also matched the arm
-  directory `items/<length>/needlepath/`, so the archived `ruler_repl_v1`
-  deposit (1.0.0 and 1.1.0) shipped the `full_context` and `compresr` per-item
-  rows and not the Needlepath rows; `csbench.suites.ruler.aggregate` refuses
-  such a deposit with a cross-arm identity error rather than producing a
-  number. `ruler_v1` was not affected (its per-item records hold all arms in
-  one file). The arm segment is now masked before the exclusion runs, the
-  builder fails on an empty source instead of reporting success, and this
-  release's deposit carries the complete `ruler_repl_v1` (7,800 records) with
-  the figures of 1.1.0 unchanged.
+- Because of a bug in the deposit tool, earlier versions of the replication
+  deposit (1.0.0 and 1.1.0) were missing the Needlepath per-item rows. The
+  published figures are unchanged; this release ships the complete deposit and
+  the fix.
 
 ## 1.1.0 - 2026-07-27
 
