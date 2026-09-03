@@ -11,7 +11,7 @@ Every run ships a `manifest.sha256` regardless.
 
 | Run(s) | Upstream | Per-item prompts | Ships |
 |---|---|---|---|
-| `ruler_v1`, `ruler_repl_v1`, `gate_ruler_v1` | RULER (PG essays; SQuAD/HotpotQA; synthetic) | no (hash) | completions, scores, token counts, metadata; `qa_1`/`qa_2` answers hashed; `sha256(prompt)` where a prompt is present |
+| `ruler_v1`, `ruler_repl_v1`, `ruler_fullsize_v1`, `gate_ruler_v1` | RULER (PG essays; SQuAD/HotpotQA; synthetic) | no (hash) | completions, scores, token counts, metadata; `qa_1`/`qa_2` answers hashed; `sha256(prompt)` where a prompt is present |
 | `appworld_v1`, `gate_appworld_v1`, `gate_probe_v1` | AppWorld | none | aggregates + paired-stats + content hashes only |
 | `controls_v1` - TruthfulQA | TruthfulQA (Apache-2.0) | plaintext | upstream items + our outputs, with `NOTICE` + citation |
 | `controls_v1` - BFCL | BFCL (Apache-2.0) | plaintext | upstream items + our outputs, with `NOTICE` + citation |

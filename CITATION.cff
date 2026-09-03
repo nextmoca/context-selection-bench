@@ -11,9 +11,9 @@ authors:
     affiliation: "Next Moca Global, Inc."
 repository-code: "https://github.com/nextmoca/context-selection-bench"
 license: Apache-2.0
-version: "1.0.1"
+version: "1.2.0"
 doi: "10.5281/zenodo.21502502"
-date-released: "2026-07-23"
+date-released: "2026-09-03"
 preferred-citation:
   type: article
   title: "A Matched-Protocol Benchmark Program for Context Selection in Agentic LLM Systems"

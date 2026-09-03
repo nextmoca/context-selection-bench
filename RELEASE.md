@@ -23,6 +23,9 @@ citation.
   benchmark's published metric, reimplemented here; deviations enumerated in the paper's
   scorer-provenance appendix), and the four latency measurement classes.
 - `runs/ruler_repl_v1/`, the public-harness replication run: per-item outputs and a SHA-256 manifest.
+- `runs/ruler_fullsize_v1/`, the full-size run on the deployed engine (2,600 items, two arms):
+  per-item outputs with verification digests and a SHA-256 manifest. Regenerate its table with
+  `python -m csbench.suites.ruler.aggregate --run-dir deposit/ruler_fullsize_v1 --out <dir> --expect-arms full_context needlepath`.
 - `tools/verify_manifests.py`: recompute every file's SHA-256 against its manifest.
 - `scripts/`: dataset fetch scripts (RULER generator, etc.).
 - `paper/`: LaTeX source of the paper.
@@ -43,7 +46,7 @@ recipe and `NOTICE` the third-party attributions. Every run ships a SHA-256 mani
 
 | Run(s) | Per-item prompts | What ships | License reason |
 |---|---|---|---|
-| RULER (`ruler_v1`, `ruler_repl_v1`, `gate_ruler_v1`) | hash-only | completions, scores, token counts, metadata; qa answers hashed | haystacks embed all-rights-reserved essays + CC BY-SA SQuAD/HotpotQA; regenerate prompts via `fetch_ruler.py` |
+| RULER (`ruler_v1`, `ruler_repl_v1`, `ruler_fullsize_v1`, `gate_ruler_v1`) | hash-only | completions, scores, token counts, metadata; qa answers hashed | haystacks embed all-rights-reserved essays + CC BY-SA SQuAD/HotpotQA; regenerate prompts via `fetch_ruler.py` |
 | AppWorld (`appworld_v1`, `gate_appworld_v1`, `gate_probe_v1`) | none | aggregates + paired-stats + content hashes | AppWorld no-plaintext terms + dataset canary |
 | `controls_v1`: TruthfulQA, BFCL | plaintext | upstream items + our outputs | Apache-2.0 permits redistribution with attribution (`NOTICE`, `LICENSES/`) |
 | `gsm8k_v1` (separate full-set run) | hash-only | full-set aggregate + manifest | figure is from a separate full-set run, not the `controls_v1` harness; GSM8K is MIT, regenerate per-item via the harness |
