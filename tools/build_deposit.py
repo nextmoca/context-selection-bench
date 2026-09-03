@@ -82,7 +82,7 @@ _RULER_ITEM_ALLOW = {
     "engine_latency_ms", "model_latency_ms", "selection_latency_ms",
     "baseline_latency_ms", "needlepath_latency_ms", "llmlingua2_latency_ms",
     "llmlingua2_compression_latency_ms",
-    # verification hashes: never text, always checkable against a regenerated corpus
+    # verification digests: exact lowercase sha256 hex, validated in clean_ruler_record
     "item_sha256", "expected_answer_sha256", "prompt_sha256", "input_sha256",
     # format + answers (answers hashed for qa tasks; see below)
     "format_metrics", "answer", "expected_answer",
@@ -148,18 +148,21 @@ _EXCLUDE_PATH = re.compile(
     r"(^|/)(signals|_tmp[^/]*|[^/]*co_configs|task_[^/]*|full_history|acon|needlepath)(/|$)"
     r"|(trajectory|env_history|llm_history|appworld_trajectory)"
 )
-# Arm directories under items/<length>/ are result data, never engine dumps. The
-# `needlepath` segment in the pattern above targets engine scratch directories,
-# and matching it against the arm directory `items/<length>/needlepath/` dropped
-# every Needlepath per-item row from the RULER deposits (ruler_v1, ruler_repl_v1)
-# while the full_context and compresr arms shipped. Arm segments are masked
-# before the pattern runs, so the exclusion cannot see them.
+# The arm directory `items/<length>/needlepath/` is result data, not an engine
+# scratch directory, but the `needlepath` word in the pattern above matched it and
+# dropped every Needlepath per-item row from the ruler_repl_v1 deposit while the
+# full_context and compresr arms shipped (ruler_v1 keeps all arms in one record
+# per item and was not affected). Exactly that arm segment is masked before the
+# pattern runs; every other name at arm depth (signals, _tmp*, task_*, ...) is
+# still subject to the exclusion.
 _ITEMS_ARM_DEPTH = 2  # items/<length>/<arm>/...
+_ARM_NAMES_THAT_COLLIDE_WITH_SCRATCH = {"needlepath"}
 
 
 def _excluded_path(rel: Path) -> bool:
     parts = list(rel.parts)
-    if len(parts) > _ITEMS_ARM_DEPTH and parts[0] == "items":
+    if len(parts) > _ITEMS_ARM_DEPTH + 1 and parts[0] == "items" \
+            and parts[_ITEMS_ARM_DEPTH] in _ARM_NAMES_THAT_COLLIDE_WITH_SCRATCH:
         parts[_ITEMS_ARM_DEPTH] = "arm"
     return bool(_EXCLUDE_PATH.search("/".join(parts)))
 
@@ -222,10 +225,18 @@ _RULER_AGG_NAMES = {"combined_summary.json", "matrix.json", "run_config.json",
                     "manifest.sha256"}
 
 
+_DIGEST_FIELDS = {"item_sha256", "expected_answer_sha256", "prompt_sha256", "input_sha256"}
+_DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
 def clean_ruler_record(rec: dict) -> dict:
     if not isinstance(rec, dict):
         _fail("non-dict item record")
     out = {k: v for k, v in rec.items() if k in _RULER_ITEM_ALLOW and k not in _PROMPTISH}
+    for field in _DIGEST_FIELDS:
+        value = out.get(field)
+        if value is not None and not (isinstance(value, str) and _DIGEST_RE.match(value)):
+            _fail(f"{field} is not a lowercase sha256 hex digest; refusing to ship it")
     if rec.get("task") in _QA_TASKS:
         for f in _QA_HASH_FIELDS:
             if out.get(f) is not None:
@@ -350,6 +361,7 @@ def build_appworld(src: Path, out_run: Path) -> int:
         for line in p.read_text(encoding="utf-8").splitlines():
             if line.strip():
                 lines.append(json.dumps(_clean_episode(json.loads(line)), sort_keys=True))
+                n += 1
         dst.write_text("\n".join(lines) + "\n", encoding="utf-8")
     # 3. run_config (allowlisted; the command field with paths/s3 is dropped)
     p = src / "run_config.json"
@@ -486,7 +498,7 @@ def main() -> int:
     write_manifest(out_run)
     scrub(out_root)
     if n == 0:
-        _fail(f"{args.run_id}: zero per-item records under {args.src} -- an empty source is not a deposit")
+        _fail(f"{args.run_id}: no per-item records or aggregate artifacts were assembled from {args.src}; nothing to deposit")
     print(f"build_deposit: {args.run_id} OK - {n} records, manifest + scrub clean")
     return 0
 

@@ -15,10 +15,10 @@ the replication deposit.
   record per arm per item with scores, token counts, latencies, selection
   outcome metadata, and SHA-256 digests of the item, the expected answer and
   each arm's prompt, so a regenerated corpus can be matched row by row without
-  any text in the deposit. Regenerating the table with
+  any source, expected-answer, or prompt text in the deposit. Regenerating the table with
   `python -m csbench.suites.ruler.aggregate --run-dir deposit/ruler_fullsize_v1
-  --expect-arms full_context needlepath` gives +12.86 pp pooled
-  [+11.44, +14.21], +11.72 pp at 8K and +13.99 pp at 16K, 52.85% fewer billed
+  --out <dir> --expect-arms full_context needlepath` gives +12.86 pp pooled
+  [+11.47, +14.20], +11.72 pp at 8K and +13.99 pp at 16K, 52.85% fewer billed
   input tokens (11,785 to 5,556 per item), and a 24.0% fallback rate.
 - `tools/build_deposit.py` keeps per-item verification digests
   (`item_sha256`, `expected_answer_sha256`, `prompt_sha256`, `input_sha256`).
