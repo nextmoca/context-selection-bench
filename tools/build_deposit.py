@@ -82,6 +82,8 @@ _RULER_ITEM_ALLOW = {
     "engine_latency_ms", "model_latency_ms", "selection_latency_ms",
     "baseline_latency_ms", "needlepath_latency_ms", "llmlingua2_latency_ms",
     "llmlingua2_compression_latency_ms",
+    # verification hashes: never text, always checkable against a regenerated corpus
+    "item_sha256", "expected_answer_sha256", "prompt_sha256", "input_sha256",
     # format + answers (answers hashed for qa tasks; see below)
     "format_metrics", "answer", "expected_answer",
     "baseline_answer", "needlepath_answer", "llmlingua2_answer",

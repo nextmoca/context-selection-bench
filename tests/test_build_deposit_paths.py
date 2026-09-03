@@ -42,3 +42,11 @@ def test_zero_records_is_a_failure_not_a_deposit(tmp_path: Path, monkeypatch):
                           cwd=Path(bd.__file__).resolve().parents[1])
     assert proc.returncode != 0
     assert "zero per-item records" in (proc.stdout + proc.stderr)
+
+
+def test_verification_hashes_survive_the_allowlist():
+    rec = {"arm": "needlepath", "task": "cwe", "score": 0.5, "item_sha256": "a" * 64,
+           "expected_answer_sha256": "b" * 64, "prompt_sha256": "c" * 64, "prompt": "never"}
+    out = bd.clean_ruler_record(rec)
+    assert out["item_sha256"] == "a" * 64 and out["prompt_sha256"] == "c" * 64
+    assert "prompt" not in out
