@@ -23,6 +23,9 @@ citation.
   benchmark's published metric, reimplemented here; deviations enumerated in the paper's
   scorer-provenance appendix), and the four latency measurement classes.
 - `runs/ruler_repl_v1/`, the public-harness replication run: per-item outputs and a SHA-256 manifest.
+- `runs/ruler_fullsize_v1/`, the full-size run on the deployed engine (2,600 items, two arms):
+  per-item outputs with verification digests and a SHA-256 manifest. Regenerate its table with
+  `python -m csbench.suites.ruler.aggregate --run-dir deposit/ruler_fullsize_v1 --expect-arms full_context needlepath`.
 - `tools/verify_manifests.py`: recompute every file's SHA-256 against its manifest.
 - `scripts/`: dataset fetch scripts (RULER generator, etc.).
 - `paper/`: LaTeX source of the paper.

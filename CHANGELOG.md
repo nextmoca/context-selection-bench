@@ -3,6 +3,38 @@
 All notable changes to this project are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## 1.2.0 - 2026-09-03
+
+Data release. Adds the full-size RULER run on the deployed engine and corrects
+the replication deposit.
+
+### Added
+- `runs/ruler_fullsize_v1/` (in the deposit): 2,600 items, 13 tasks at 8K and
+  16K, two arms (full context and Needlepath at the deployed `np-2026-08-r4`
+  operating point), `gemini-3.1-pro-preview` at temperature 0, paired. One
+  record per arm per item with scores, token counts, latencies, selection
+  outcome metadata, and SHA-256 digests of the item, the expected answer and
+  each arm's prompt, so a regenerated corpus can be matched row by row without
+  any text in the deposit. Regenerating the table with
+  `python -m csbench.suites.ruler.aggregate --run-dir deposit/ruler_fullsize_v1
+  --expect-arms full_context needlepath` gives +12.86 pp pooled
+  [+11.44, +14.21], +11.72 pp at 8K and +13.99 pp at 16K, 52.85% fewer billed
+  input tokens (11,785 to 5,556 per item), and a 24.0% fallback rate.
+- `tools/build_deposit.py` keeps per-item verification digests
+  (`item_sha256`, `expected_answer_sha256`, `prompt_sha256`, `input_sha256`).
+
+### Fixed
+- The deposit builder's scratch-directory exclusion also matched the arm
+  directory `items/<length>/needlepath/`, so the archived `ruler_repl_v1`
+  deposit (1.0.0 and 1.1.0) shipped the `full_context` and `compresr` per-item
+  rows and not the Needlepath rows; `csbench.suites.ruler.aggregate` refuses
+  such a deposit with a cross-arm identity error rather than producing a
+  number. `ruler_v1` was not affected (its per-item records hold all arms in
+  one file). The arm segment is now masked before the exclusion runs, the
+  builder fails on an empty source instead of reporting success, and this
+  release's deposit carries the complete `ruler_repl_v1` (7,800 records) with
+  the figures of 1.1.0 unchanged.
+
 ## 1.1.0 - 2026-07-27
 
 Corrective release. A row-duplication defect in the RULER replication harness is
