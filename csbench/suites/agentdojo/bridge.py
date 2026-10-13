@@ -228,7 +228,9 @@ def classify_response(request_id: str, response: Any) -> Decision:
     """Decide applied / passthrough / fail-open from the server's answer.
 
     The decision reads only outcome flags the server set; it never inspects
-    the content to choose what to keep.
+    the content to choose what to keep. A selection is applied only on an
+    explicit ``outcome == "engaged"`` with non-empty rendered text and no
+    fallback, safety or gate signal to the contrary.
     """
     if not isinstance(response, dict):
         return Decision(EVENT_FAIL_OPEN, "malformed_response:not_an_object")
@@ -257,9 +259,16 @@ def classify_response(request_id: str, response: Any) -> Decision:
         return Decision(EVENT_PASSTHROUGH, "unsafe_selection", **common)
     if response.get("selection_error"):
         return Decision(EVENT_PASSTHROUGH, "selection_error", **common)
-    if outcome not in (None, "engaged"):
-        # Open enum: an outcome this bridge does not know is not an engagement.
+    # Application requires explicit engagement. A missing outcome is not an
+    # engagement, and an outcome this bridge does not know (open enum) is not
+    # one either; a gate that says it did not engage overrides everything.
+    if outcome is None:
+        return Decision(EVENT_PASSTHROUGH, "no_outcome", **common)
+    if outcome != "engaged":
         return Decision(EVENT_PASSTHROUGH, "unknown_outcome", **common)
+    gate = response.get("gate")
+    if isinstance(gate, dict) and gate.get("engaged") is False:
+        return Decision(EVENT_PASSTHROUGH, "gate_not_engaged", **common)
     if not rendered.strip():
         return Decision(EVENT_FAIL_OPEN, "empty_selection", **common)
     return Decision(EVENT_APPLIED, "applied", rendered=rendered, **common)

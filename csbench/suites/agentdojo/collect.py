@@ -203,11 +203,16 @@ def validate_arm(
     rows: list[CaseRow],
     *,
     expected_ids: set[str],
+    expected_shards: int,
     shard_exit_codes: dict[str, int],
     require_telemetry: bool,
     events: list[dict[str, Any]],
 ) -> ArmValidation:
-    """Apply every whole-arm gate; the first failing gate names the reason."""
+    """Apply every whole-arm gate; the first failing gate names the reason.
+
+    ``shard_exit_codes`` must cover exactly shards ``0..expected_shards-1``:
+    a status set that is a subset of the plan means a shard never ran.
+    """
     ids = [r.case_id for r in rows]
     counts = Counter(ids)
     duplicates = sorted(k for k, n in counts.items() if n > 1)
@@ -226,11 +231,19 @@ def validate_arm(
         telemetry_events=len(events),
     )
 
+    if not shard_exit_codes:
+        return ArmValidation(False, "no_shard_exit_status_recorded", **base)
+    planned = {str(i) for i in range(int(expected_shards))}
+    recorded = set(shard_exit_codes)
+    if recorded != planned:
+        return ArmValidation(
+            False,
+            f"shard_status_set_mismatch:missing={sorted(planned - recorded)}:unexpected={sorted(recorded - planned)}",
+            **base,
+        )
     bad_exit = {k: v for k, v in shard_exit_codes.items() if v != 0}
     if bad_exit:
         return ArmValidation(False, f"shard_exit_nonzero:{sorted(bad_exit)}", **base)
-    if not shard_exit_codes:
-        return ArmValidation(False, "no_shard_exit_status_recorded", **base)
     if error_rows:
         return ArmValidation(False, f"provider_error_rows:{error_rows}", **base)
     if duplicates:

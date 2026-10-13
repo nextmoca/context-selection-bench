@@ -94,9 +94,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def cmd_summarize(args: argparse.Namespace) -> int:
     try:
-        summary = summarize_run(
-            args.run_root, planned_repeats=args.planned_repeats, allow_directional=args.allow_directional
-        )
+        summary = summarize_run(args.run_root, allow_directional=args.allow_directional)
     except SummaryGateError as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2
@@ -147,7 +145,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("summarize", help="gated summary of a run root")
     p.add_argument("--run-root", required=True, type=Path)
-    p.add_argument("--planned-repeats", type=int, default=None)
     p.add_argument("--allow-directional", action="store_true",
                    help="permit a directional-only summary of >= 2 complete repeats")
     p.set_defaults(func=cmd_summarize)

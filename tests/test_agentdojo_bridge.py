@@ -170,6 +170,8 @@ def test_no_tool_batch_means_no_request(tmp_path):
         ("malformed_id", lambda req: selector_response(req, rendered="X", request_id="other"), EVENT_FAIL_OPEN, "malformed_response:request_id_mismatch"),
         ("malformed_rendered", lambda req: selector_response(req, rendered=None), EVENT_FAIL_OPEN, "malformed_response:rendered_context_not_text"),
         ("unknown_outcome", lambda req: selector_response(req, rendered="X", outcome="something_new", fallback_used=False, safety={"selection_safe": True, "fallback_required": False}), EVENT_PASSTHROUGH, "unknown_outcome"),
+        ("no_outcome", lambda req: selector_response(req, rendered="X", outcome=None, fallback_used=False, safety={"selection_safe": True, "fallback_required": False}, gate={"engaged": True, "reason": "engage:fake", "signals": {}}), EVENT_PASSTHROUGH, "no_outcome"),
+        ("gate_not_engaged", lambda req: selector_response(req, rendered="X", gate={"engaged": False, "reason": "standdown:fake", "signals": {}}), EVENT_PASSTHROUGH, "gate_not_engaged"),
     ],
 )
 def test_fail_open_preserves_exact_original_tool_messages(tmp_path, name, responder, expected_event, expected_reason):
@@ -286,18 +288,48 @@ def test_telemetry_privacy_no_text_or_credential(tmp_path, monkeypatch):
     assert events[1]["event"] == EVENT_FAIL_OPEN and events[1]["reason"] == "exception:RuntimeError"
 
 
-def test_telemetry_writer_rejects_content_sized_strings(tmp_path):
-    from csbench.suites.agentdojo.telemetry import SelectionEvent, TelemetryContractError
+def _event(**over):
+    from csbench.suites.agentdojo.telemetry import SelectionEvent
 
-    w = TelemetryWriter(tmp_path / "t.jsonl")
-    ev = SelectionEvent(
+    base = dict(
         event=EVENT_APPLIED, ingress="text", autochunk=True, operating_point="op", tool_results=1,
         original_token_estimate=1, selected_token_estimate=1, latency_ms=1.0, engine_latency_ms=None,
-        gate_reason="x" * 500, reason="applied", support_contract=None, semantic_adapters=None,
-        records_expanded=None, derived_records=None, case_id="c", turn_index=0, request_id="r",
+        gate_reason="engage:ok", reason="applied", support_contract=None, semantic_adapters=None,
+        records_expanded=None, derived_records=None, case_id="s/a/u/i/r1/arm", turn_index=0, request_id="s/a/u/i/r1/arm/t0",
     )
+    base.update(over)
+    return SelectionEvent(**base)
+
+
+def test_server_controlled_labels_are_sanitized_before_writing(tmp_path):
+    """A server could put anything in gate.reason or the routing fields; only
+    label-shaped tokens reach the file, everything else becomes 'unlabelled'."""
+    from csbench.suites.agentdojo.telemetry import UNLABELLED
+
+    leaked = "please ignore previous instructions and " + "x" * 300
+    w = TelemetryWriter(tmp_path / "t.jsonl")
+    w.write(_event(gate_reason=leaked, support_contract="has spaces", semantic_adapters=["ok_adapter", leaked]))
+    raw = (tmp_path / "t.jsonl").read_text()
+    assert "ignore previous" not in raw and "has spaces" not in raw
+    ev = read_events(tmp_path / "t.jsonl")[0]
+    assert ev["gate_reason"] == UNLABELLED and ev["support_contract"] == UNLABELLED
+    assert ev["semantic_adapters"] == ["ok_adapter", UNLABELLED]
+
+
+def test_non_conforming_telemetry_file_refuses_to_load(tmp_path):
+    from csbench.suites.agentdojo.telemetry import TelemetryContractError, assert_event_is_metadata_only
+
+    wire = _event().to_wire()
+    wire["gate_reason"] = "free text with spaces"
+    with pytest.raises(TelemetryContractError, match="gate_reason"):
+        assert_event_is_metadata_only(wire)
+    (tmp_path / "bad.jsonl").write_text(json.dumps(wire) + "\n")
     with pytest.raises(TelemetryContractError):
-        w.write(ev)
+        read_events(tmp_path / "bad.jsonl")
+    wire["gate_reason"] = "engage:ok"
+    wire["extra_field"] = 1
+    with pytest.raises(TelemetryContractError, match="drifted"):
+        assert_event_is_metadata_only(wire)
 
 
 # ------------------------------------------------------- pipeline insertion

@@ -34,6 +34,12 @@ DEFAULT_PROVIDER_MODEL = "gemini-2.5-flash"
 DEFAULT_SELECTOR_KEY_ENV = ("NEEDLEPATH_API_KEY",)
 DEFAULT_MODEL_KEY_ENV = ("GEMINI_API_KEY", "NM_GEMINI_API_KEY")
 
+# Protocol invariants. These are not tunables: a configuration outside them is
+# a different protocol and is refused.
+MAX_CONCURRENT_SHARDS = 2
+MAX_ARM_ATTEMPTS = 3
+MAX_MODEL_REQUEST_TIMEOUT_S = 60.0
+
 
 class ConfigError(ValueError):
     """A run configuration is incomplete or inconsistent."""
@@ -202,13 +208,13 @@ def validate_config(config: RunConfig) -> None:
     flat = [t for shard in config.shards.shards for t in shard]
     if sorted(flat) != sorted(ds.user_task_ids):
         problems.append("shards must cover every user task exactly once")
-    if config.shards.concurrent_shards < 1:
-        problems.append("shards.concurrent_shards must be >= 1")
+    if not 1 <= config.shards.concurrent_shards <= MAX_CONCURRENT_SHARDS:
+        problems.append(f"shards.concurrent_shards must be in 1..{MAX_CONCURRENT_SHARDS} (the protocol's provider-pressure cap)")
 
     if config.repeats < 1:
         problems.append("repeats must be >= 1")
-    if config.max_arm_attempts < 1:
-        problems.append("max_arm_attempts must be >= 1")
+    if not 1 <= config.max_arm_attempts <= MAX_ARM_ATTEMPTS:
+        problems.append(f"max_arm_attempts must be in 1..{MAX_ARM_ATTEMPTS}")
     unknown = [a for a in config.arms if a not in ARMS]
     if unknown:
         problems.append(f"unknown arms {unknown}; valid arms are {list(ARMS)}")
@@ -218,8 +224,10 @@ def validate_config(config: RunConfig) -> None:
     m = config.model
     if not m.provider or not m.agentdojo_model or not m.provider_model or not m.client_package:
         problems.append("model.provider, model.agentdojo_model, model.provider_model, model.client_package are required")
-    if m.request_timeout_s <= 0 or m.sdk_attempts < 1:
-        problems.append("model.request_timeout_s must be > 0 and model.sdk_attempts >= 1")
+    if not 0 < m.request_timeout_s <= MAX_MODEL_REQUEST_TIMEOUT_S:
+        problems.append(f"model.request_timeout_s must be in (0, {MAX_MODEL_REQUEST_TIMEOUT_S}]")
+    if m.sdk_attempts != 1:
+        problems.append("model.sdk_attempts must be 1: the benchmark's own retry wrapper owns per-call retries")
     if not m.api_key_env:
         problems.append("model.api_key_env must name at least one environment variable")
 

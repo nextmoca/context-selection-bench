@@ -70,6 +70,7 @@ def run_shard(
     arm: str,
     shard_index: int,
     arm_dir: Path,
+    attempt_id: Optional[str] = None,
     environ: Optional[dict[str, str]] = None,
 ) -> dict[str, Any]:
     import agentdojo.benchmark as agentdojo_benchmark
@@ -119,6 +120,7 @@ def run_shard(
         "shard_index": int(shard_index),
         "repeat": int(repeat),
         "arm": arm,
+        "attempt_id": attempt_id,
         "user_tasks": user_tasks,
         "scored_rows": len(results["utility_results"]),
         "pipeline_name": pipeline.name,
@@ -134,12 +136,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--repeat", required=True, type=int)
     ap.add_argument("--arm", required=True)
     ap.add_argument("--shard", required=True, type=int)
+    ap.add_argument("--attempt-id", default=None)
     args = ap.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stdout)
     config = RunConfig.load(args.config)
     arm_dir = config.arm_dir(args.run_root, args.repeat, args.arm)
-    done = run_shard(config, repeat=args.repeat, arm=args.arm, shard_index=args.shard, arm_dir=arm_dir)
+    done = run_shard(
+        config, repeat=args.repeat, arm=args.arm, shard_index=args.shard, arm_dir=arm_dir, attempt_id=args.attempt_id
+    )
     print(json.dumps(done, sort_keys=True))
     return 0
 

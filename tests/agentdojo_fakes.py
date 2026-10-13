@@ -290,16 +290,12 @@ class FakeLauncher:
         self.plan = plan or {}
         self.outcomes = outcomes
         self.calls: list[tuple[int, str, int, str]] = []
-        self._attempt_counter: dict[tuple[int, str], int] = {}
         self.seen_dir_contents: list[list[str]] = []
 
-    def _attempt_number(self, repeat: int, arm: str, shard_index: int) -> int:
-        if shard_index == 0:
-            self._attempt_counter[(repeat, arm)] = self._attempt_counter.get((repeat, arm), 0) + 1
-        return self._attempt_counter[(repeat, arm)]
-
     def __call__(self, job) -> int:
-        n = self._attempt_number(job.repeat, job.arm, job.shard_index)
+        # The attempt number comes from the runner's attempt id (".../attempt_N"),
+        # so concurrent shards of one wave agree on it without shared state.
+        n = int(job.attempt_id.rsplit("attempt_", 1)[1])
         behaviour = self.plan.get((job.repeat, job.arm, n), "ok")
         self.calls.append((job.repeat, job.arm, job.shard_index, behaviour))
         self.seen_dir_contents.append(sorted(p.name for p in job.arm_dir.iterdir()))

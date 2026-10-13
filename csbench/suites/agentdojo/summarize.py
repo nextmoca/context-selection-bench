@@ -195,6 +195,7 @@ def _gate_arm(
     v = validate_arm(  # gates 1, 2, 4, 5: exit codes, exact rows, telemetry presence and fields
         rows,
         expected_ids=expected,
+        expected_shards=len(cfg.shards.shards),
         shard_exit_codes=attempt.shard_exit_codes,
         require_telemetry=cfg.uses_selector(arm),
         events=events,
@@ -208,10 +209,12 @@ def _gate_arm(
 def summarize_run(
     run_root: Path,
     *,
-    planned_repeats: Optional[int] = None,
     allow_directional: bool = False,
     write: bool = True,
 ) -> dict[str, Any]:
+    """Summarize a run root. The planned repeat count is the manifest's
+    ``config.repeats``; it cannot be overridden, so an incomplete run can never
+    be summarized as complete by asking for fewer repeats."""
     run_root = Path(run_root)
     manifest_path = run_root / "manifest.json"
     if not manifest_path.exists():
@@ -222,7 +225,7 @@ def summarize_run(
     except ManifestError as exc:
         raise SummaryGateError(str(exc)) from exc
     cfg = manifest.config
-    planned = int(planned_repeats or cfg.repeats)
+    planned = int(cfg.repeats)
 
     problems: list[str] = []
     per_repeat: dict[int, dict[str, Any]] = {}
@@ -306,11 +309,15 @@ def summarize_run(
     if evidence_class == "complete":
         ci_u = bootstrap_ci_delta([r.utility for _, r in all_pairs], [b.utility for b, _ in all_pairs])
         ci_a = bootstrap_ci_delta([b.attack_success for b, _ in all_pairs], [r.attack_success for _, r in all_pairs])
-        aggregate["bootstrap_ci95"] = {
+        aggregate["bootstrap_ci95_pooled_cases"] = {
             "utility_delta": [ci_u.ci_low, ci_u.ci_high],
             "asr_reduction": [ci_a.ci_low, ci_a.ci_high],
             "n_pairs": ci_u.n_items,
-            "note": "paired resampling over (case, repeat) pairs pooled across complete repeats",
+            "note": (
+                "exploratory: paired resampling over (case, repeat) rows pooled across complete repeats, "
+                "which treats repeats of a case as independent; the headline aggregation above is the "
+                "mean of per-repeat paired deltas"
+            ),
         }
     aggregate["attribution"] = attribution_crosstab(all_pairs)
 

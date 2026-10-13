@@ -52,35 +52,48 @@ def test_row_completeness_559_of_560_fails_the_arm():
     it = [f"injection_task_{i}" for i in range(14)]
     expected = expected_case_ids(SUITE, ATTACK, ut, it, 1, ARM_BASELINE)
     assert len(expected) == 560
-    ok = validate_arm(_rows(sorted(expected)), expected_ids=expected, shard_exit_codes={str(i): 0 for i in range(8)}, require_telemetry=False, events=[])
+    eight = {str(i): 0 for i in range(8)}
+    ok = validate_arm(_rows(sorted(expected)), expected_ids=expected, expected_shards=8, shard_exit_codes=eight, require_telemetry=False, events=[])
     assert ok.valid and ok.row_count == 560
-    short = validate_arm(_rows(sorted(expected)[:-1]), expected_ids=expected, shard_exit_codes={str(i): 0 for i in range(8)}, require_telemetry=False, events=[])
+    short = validate_arm(_rows(sorted(expected)[:-1]), expected_ids=expected, expected_shards=8, shard_exit_codes=eight, require_telemetry=False, events=[])
     assert not short.valid and short.reason == "missing_case_ids:1" and short.row_count == 559
 
 
 def test_duplicate_unexpected_and_exit_code_gates():
     expected = expected_case_ids(SUITE, ATTACK, ["user_task_0"], ["injection_task_0", "injection_task_1"], 1, ARM_BASELINE)
     rows = _rows(sorted(expected))
-    dup = validate_arm(rows + rows[:1], expected_ids=expected, shard_exit_codes={"0": 0}, require_telemetry=False, events=[])
+    one = dict(expected_shards=1, shard_exit_codes={"0": 0}, require_telemetry=False, events=[])
+    dup = validate_arm(rows + rows[:1], expected_ids=expected, **one)
     assert dup.reason == "duplicate_case_ids:1"
-    extra = validate_arm(rows + _rows([case_id(SUITE, ATTACK, "user_task_9", "injection_task_0", 1, ARM_BASELINE)]), expected_ids=expected, shard_exit_codes={"0": 0}, require_telemetry=False, events=[])
+    extra = validate_arm(rows + _rows([case_id(SUITE, ATTACK, "user_task_9", "injection_task_0", 1, ARM_BASELINE)]), expected_ids=expected, **one)
     assert extra.reason == "unexpected_case_ids:1"
-    exit1 = validate_arm(rows, expected_ids=expected, shard_exit_codes={"0": 0, "1": 137}, require_telemetry=False, events=[])
+    exit1 = validate_arm(rows, expected_ids=expected, expected_shards=2, shard_exit_codes={"0": 0, "1": 137}, require_telemetry=False, events=[])
     assert exit1.reason == "shard_exit_nonzero:['1']"
-    none = validate_arm(rows, expected_ids=expected, shard_exit_codes={}, require_telemetry=False, events=[])
+    none = validate_arm(rows, expected_ids=expected, expected_shards=1, shard_exit_codes={}, require_telemetry=False, events=[])
     assert none.reason == "no_shard_exit_status_recorded"
     rows[0].error = "ServerError: 504"
-    err = validate_arm(rows, expected_ids=expected, shard_exit_codes={"0": 0}, require_telemetry=False, events=[])
+    err = validate_arm(rows, expected_ids=expected, **one)
     assert err.reason == "provider_error_rows:1", "a provider-skipped case is never a scored outcome"
+
+
+def test_shard_status_set_must_equal_the_plan():
+    """A shard that never ran leaves no status; a zero-exit subset is not a valid arm."""
+    expected = expected_case_ids(SUITE, ATTACK, ["user_task_0"], ["injection_task_0"], 1, ARM_BASELINE)
+    rows = _rows(sorted(expected))
+    subset = validate_arm(rows, expected_ids=expected, expected_shards=8, shard_exit_codes={"0": 0, "1": 0}, require_telemetry=False, events=[])
+    assert subset.reason == "shard_status_set_mismatch:missing=['2', '3', '4', '5', '6', '7']:unexpected=[]"
+    extra = validate_arm(rows, expected_ids=expected, expected_shards=1, shard_exit_codes={"0": 0, "9": 0}, require_telemetry=False, events=[])
+    assert extra.reason == "shard_status_set_mismatch:missing=[]:unexpected=['9']"
 
 
 def test_selector_arm_requires_well_formed_telemetry():
     expected = expected_case_ids(SUITE, ATTACK, ["user_task_0"], ["injection_task_0"], 1, ARM_NEEDLEPATH)
     rows = _rows(sorted(expected))
-    v = validate_arm(rows, expected_ids=expected, shard_exit_codes={"0": 0}, require_telemetry=True, events=[])
+    one = dict(expected_shards=1, shard_exit_codes={"0": 0}, require_telemetry=True)
+    v = validate_arm(rows, expected_ids=expected, events=[], **one)
     assert v.reason == "no_selector_telemetry"
     ev = {"event": "needlepath_applied", "operating_point": None, "ingress": "text", "original_token_estimate": 10}
-    v = validate_arm(rows, expected_ids=expected, shard_exit_codes={"0": 0}, require_telemetry=True, events=[ev])
+    v = validate_arm(rows, expected_ids=expected, events=[ev], **one)
     assert v.reason == "telemetry_event_missing:operating_point"
 
 
@@ -203,6 +216,36 @@ def test_runner_archives_a_preexisting_directory_instead_of_reusing_it(tmp_path)
     runner.run()
     assert not (stale / "leftover.txt").exists()
     assert any(".failed_attempt_" in p.name for p in (runner.run_root / "repeat_1").iterdir())
+
+
+def test_resume_refuses_a_changed_configuration(tmp_path):
+    cfg = small_config(repeats=1)
+    runner = make_runner(tmp_path, cfg, FakeLauncher(cfg))
+    runner.run()
+    changed = small_config(repeats=1)
+    changed.budget.max_context_tokens = 999
+    launcher = FakeLauncher(changed)
+    with pytest.raises(RuntimeError, match="different configuration"):
+        make_runner(tmp_path, changed, launcher).run()
+    assert launcher.calls == []
+    # the original run_config.json was not overwritten by the refused resume
+    assert json.loads((runner.run_root / "run_config.json").read_text())["budget"]["max_context_tokens"] == 1200
+
+
+def test_attempt_limit_is_total_across_resumes(tmp_path):
+    """Three recorded attempts exhaust the arm; a resumed run cannot add a fourth."""
+    cfg = small_config(repeats=1)
+    plan = {(1, ARM_BASELINE, n): "error_row" for n in (1, 2, 3)}
+    first = FakeLauncher(cfg, plan=plan)
+    runner = make_runner(tmp_path, cfg, first)
+    with pytest.raises(ArmFailed):
+        runner.run()
+    assert len(first.calls) == 6  # 3 attempts x 2 shards
+    second = FakeLauncher(cfg)  # would succeed if allowed to run
+    with pytest.raises(ArmFailed, match="already recorded"):
+        make_runner(tmp_path, cfg, second).run()
+    assert second.calls == []
+    assert len(RunManifest.load(runner.manifest_path).attempts) == 3
 
 
 def test_archive_never_overwrites(tmp_path):

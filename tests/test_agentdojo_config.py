@@ -68,6 +68,12 @@ def test_shard_plan_covers_tasks_in_waves():
         (lambda c: setattr(c, "arms", [ARM_NEEDLEPATH]), "baseline arm is required"),
         (lambda c: setattr(c, "repeats", 0), "repeats"),
         (lambda c: setattr(c.selector, "entry_point", "records"), "entry_point"),
+        # protocol invariants, not tunables
+        (lambda c: setattr(c.model, "sdk_attempts", 2), "sdk_attempts must be 1"),
+        (lambda c: setattr(c.model, "request_timeout_s", 61.0), "request_timeout_s"),
+        (lambda c: setattr(c, "max_arm_attempts", 4), "max_arm_attempts must be in 1..3"),
+        (lambda c: setattr(c.shards, "concurrent_shards", 3), "concurrent_shards must be in 1..2"),
+        (lambda c: setattr(c.shards, "concurrent_shards", 0), "concurrent_shards must be in 1..2"),
     ],
 )
 def test_config_validation_refuses(mutate, fragment):

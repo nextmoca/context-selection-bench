@@ -66,6 +66,16 @@ rendered context or credentials), with a closed field set:
 deterministic and sufficient for within-run comparison, not provider-billed
 accounting.
 
+## Protocol invariants
+
+`validate_config` refuses a configuration outside the protocol: at most two
+concurrent shards, at most three whole-arm attempts, one SDK attempt per model
+call (the benchmark's own retry wrapper owns retries), a per-request model
+timeout of at most 60 s, `autochunk = true`, `fallback_policy = fail_open`,
+`entry_point = text`. A resumed run must present the exact configuration it
+started with. The summarizer's planned repeat count is the manifest's and
+cannot be overridden.
+
 ## Validity and retry
 
 An arm is accepted only when every shard exited 0, no row carries a provider

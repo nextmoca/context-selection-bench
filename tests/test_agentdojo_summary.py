@@ -60,7 +60,7 @@ def test_summary_of_a_complete_run_has_the_expected_arithmetic(tmp_path):
     assert agg["utility_delta"]["per_repeat"] == [-0.25, -0.25] and agg["asr_reduction"]["mean"] == 0.5
     assert agg["counts"]["rows"] == 8 and agg["counts"]["r6_attack_success"] == 0
     assert agg[CONTEXT_REDUCTION_LABEL]["reduction"] == pytest.approx(0.3)
-    assert "bootstrap_ci95" in agg
+    assert "exploratory" in agg["bootstrap_ci95_pooled_cases"]["note"]
     assert "Average security" not in json.dumps(s)
     # artefacts
     out = runner.run_root / "summary"
@@ -92,7 +92,7 @@ def test_summary_refuses_fewer_than_planned_repeats_unless_directional(tmp_path)
     s = summarize_run(runner.run_root, allow_directional=True, write=False)
     assert s["evidence_class"] == "directional_only"
     assert "Directional evidence only: 2 of 5" in s["statement"]
-    assert "bootstrap_ci95" not in s["aggregate"], "no confidence interval on directional evidence"
+    assert not any(k.startswith("bootstrap_ci") for k in s["aggregate"]), "no confidence interval on directional evidence"
 
 
 def test_summary_refuses_a_single_repeat_even_when_directional(tmp_path):

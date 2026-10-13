@@ -2,14 +2,19 @@
 
 The event schema is closed (``EVENT_FIELDS``). An event never carries prompt
 text, tool-result text, rendered context, record excerpts or credentials: the
-writer accepts only the fields below, and ``assert_event_is_metadata_only``
-rejects any string value long enough to be content rather than a label.
+writer accepts only the fields below; every string the *server* controls
+(``gate_reason``, ``support_contract``, ``semantic_adapters``, and the
+operating point and ingress echoed from configuration) must match a strict
+label syntax or is replaced by the ``UNLABELLED`` sentinel before writing; and
+``assert_event_is_metadata_only`` rejects any event whose strings do not
+conform, so a non-conforming file cannot be read back either.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -44,13 +49,34 @@ EVENT_FIELDS = (
     "request_id",
 )
 
-# A label (gate reason, adapter route, id) is short; anything longer than this
-# in a string field is treated as leaked content and rejected.
-MAX_LABEL_CHARS = 256
+# Labels are short tokens: letters, digits and a few separators. Anything else
+# in a label field is content, not a label.
+LABEL_RE = re.compile(r"^[A-Za-z0-9_.:+-]{1,128}$")
+# Ids are built by this harness (``ids.py``) and additionally contain "/".
+ID_RE = re.compile(r"^[A-Za-z0-9_.:/+-]{1,256}$")
+LABEL_FIELDS = ("ingress", "operating_point", "gate_reason", "reason", "support_contract", "semantic_adapters")
+ID_FIELDS = ("case_id", "request_id")
+UNLABELLED = "unlabelled"
 
 
 class TelemetryContractError(ValueError):
     """An event violates the metadata-only contract."""
+
+
+def sanitize_labels(event: dict[str, Any]) -> dict[str, Any]:
+    """Replace any non-conforming label string with ``UNLABELLED``.
+
+    Label fields echo strings the selection server controls; this guarantees
+    no server-supplied text reaches the telemetry file, whatever it contains.
+    """
+    out = dict(event)
+    for key in LABEL_FIELDS:
+        value = out.get(key)
+        if isinstance(value, list):
+            out[key] = [v if isinstance(v, str) and LABEL_RE.match(v) else UNLABELLED for v in value]
+        elif isinstance(value, str) and not LABEL_RE.match(value):
+            out[key] = UNLABELLED
+    return out
 
 
 @dataclass
@@ -81,8 +107,8 @@ class SelectionEvent:
 
 
 def assert_event_is_metadata_only(event: dict[str, Any]) -> None:
-    """Reject an event carrying anything other than the closed field set, or a
-    string long enough to be content rather than a label."""
+    """Reject an event carrying anything other than the closed field set, a
+    nested structure, or a string that is not a conforming label or id."""
     extra = set(event) - set(EVENT_FIELDS)
     missing = set(EVENT_FIELDS) - set(event)
     if extra or missing:
@@ -92,10 +118,14 @@ def assert_event_is_metadata_only(event: dict[str, Any]) -> None:
     for key, value in event.items():
         values = value if isinstance(value, list) else [value]
         for v in values:
-            if isinstance(v, str) and len(v) > MAX_LABEL_CHARS:
-                raise TelemetryContractError(f"field {key!r} holds {len(v)} chars; events carry labels, not content")
             if isinstance(v, (dict, tuple, set)):
                 raise TelemetryContractError(f"field {key!r} holds a nested structure; events are flat")
+            if isinstance(v, str):
+                pattern = ID_RE if key in ID_FIELDS else LABEL_RE
+                if not pattern.match(v):
+                    raise TelemetryContractError(
+                        f"field {key!r} holds a non-label string ({len(v)} chars); events carry labels, not content"
+                    )
 
 
 class TelemetryWriter:
@@ -107,7 +137,7 @@ class TelemetryWriter:
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def write(self, event: SelectionEvent) -> None:
-        wire = event.to_wire()
+        wire = sanitize_labels(event.to_wire())
         assert_event_is_metadata_only(wire)
         line = json.dumps(wire, sort_keys=True) + "\n"
         with self._lock:

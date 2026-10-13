@@ -59,6 +59,7 @@ class ShardJob:
     arm: str
     shard_index: int
     arm_dir: Path
+    attempt_id: str
 
     @property
     def log_path(self) -> Path:
@@ -83,6 +84,8 @@ def default_shard_launcher(job: ShardJob) -> int:
         job.arm,
         "--shard",
         str(job.shard_index),
+        "--attempt-id",
+        job.attempt_id,
     ]
     with job.log_path.open("ab") as log:
         proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT)
@@ -139,14 +142,19 @@ class Runner:
     def start(self) -> RunManifest:
         """Write config and manifest; the manifest is validated before any shard runs."""
         self.run_root.mkdir(parents=True, exist_ok=True)
-        self.config.save(self.config_path)
         if self.manifest_path.exists():
             manifest = RunManifest.load(self.manifest_path)
             if manifest.run_id != self.config.run_id:
                 raise RuntimeError(f"run root already holds run {manifest.run_id!r}, not {self.config.run_id!r}")
+            if manifest.config.to_wire() != self.config.to_wire():
+                raise RuntimeError(
+                    "run root already holds a manifest for this run id with a different configuration; "
+                    "a resumed run must use the configuration it started with"
+                )
         else:
             manifest = RunManifest.create(self.config, self.environment)
             manifest.started_at = utc_now()
+        self.config.save(self.config_path)
         validate_manifest(manifest.to_wire())
         manifest.save(self.manifest_path)
         self.manifest = manifest
@@ -179,8 +187,13 @@ class Runner:
             cfg.dataset.suite, cfg.dataset.attack, cfg.dataset.user_task_ids, cfg.dataset.injection_task_ids, repeat, arm
         )
         prior = sum(1 for a in manifest.attempts if a.repeat == repeat and a.arm == arm)
+        if prior >= cfg.max_arm_attempts:
+            raise ArmFailed(
+                f"repeat {repeat} arm {arm}: {prior} attempt(s) already recorded; the limit is "
+                f"{cfg.max_arm_attempts} in total, resumed runs included"
+            )
 
-        for n in range(prior + 1, prior + cfg.max_arm_attempts + 1):
+        for n in range(prior + 1, cfg.max_arm_attempts + 1):
             if arm_dir.exists():
                 # A leftover directory (interrupted process, manual run) is never
                 # reused: archive it so the attempt starts empty.
@@ -198,13 +211,14 @@ class Runner:
             manifest.attempts.append(attempt)
             manifest.save(self.manifest_path)
 
-            attempt.shard_exit_codes = self._run_waves(repeat, arm, arm_dir)
+            attempt.shard_exit_codes = self._run_waves(repeat, arm, arm_dir, attempt.attempt_id)
             attempt.ended_at = utc_now()
 
             rows, events = collect_arm(arm_dir, repeat=repeat, arm=arm)
             validation = validate_arm(
                 rows,
                 expected_ids=expected,
+                expected_shards=len(cfg.shards.shards),
                 shard_exit_codes=attempt.shard_exit_codes,
                 require_telemetry=cfg.uses_selector(arm),
                 events=events,
@@ -240,7 +254,7 @@ class Runner:
             f"last reason: {manifest.attempts[-1].invalidation_reason}"
         )
 
-    def _run_waves(self, repeat: int, arm: str, arm_dir: Path) -> dict[str, int]:
+    def _run_waves(self, repeat: int, arm: str, arm_dir: Path, attempt_id: str) -> dict[str, int]:
         exit_codes: dict[str, int] = {}
         for wave in self.config.shards.waves():
             jobs = [
@@ -251,6 +265,7 @@ class Runner:
                     arm=arm,
                     shard_index=i,
                     arm_dir=arm_dir,
+                    attempt_id=attempt_id,
                 )
                 for i in wave
             ]
