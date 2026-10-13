@@ -72,6 +72,12 @@ class CaseRow:
 
 
 def is_archived_path(path: Path) -> bool:
+    """True when any segment names an archived attempt.
+
+    Archives are siblings of the arm directory, so a traversal rooted at the
+    arm directory never reaches them; this check is the explicit statement of
+    that rule for a caller that roots the traversal higher up by mistake.
+    """
     return any(FAILED_ATTEMPT_MARKER in part for part in path.parts)
 
 

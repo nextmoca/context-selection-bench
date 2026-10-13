@@ -188,14 +188,11 @@ def _gate_arm(
     if not arm_dir.is_dir():
         problems.append(f"repeat {repeat} {arm}: accepted attempt {attempt.attempt_id} has no directory {arm_dir}")
         return None
-    bad = {k: v for k, v in attempt.shard_exit_codes.items() if v != 0}
-    if bad or not attempt.shard_exit_codes:
-        problems.append(f"repeat {repeat} {arm}: shard exit status not all 0 ({attempt.shard_exit_codes})")
     rows, events = collect_arm(arm_dir, repeat=repeat, arm=arm)
     expected = expected_case_ids(
         cfg.dataset.suite, cfg.dataset.attack, cfg.dataset.user_task_ids, cfg.dataset.injection_task_ids, repeat, arm
     )
-    v = validate_arm(
+    v = validate_arm(  # gates 1, 2, 4, 5: exit codes, exact rows, telemetry presence and fields
         rows,
         expected_ids=expected,
         shard_exit_codes=attempt.shard_exit_codes,

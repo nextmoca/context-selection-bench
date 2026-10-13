@@ -306,7 +306,9 @@ class HttpTextTransport:
     def __call__(self, request: dict[str, Any]) -> Any:
         import requests
 
-        session = self._session or requests.Session()
+        if self._session is None:
+            self._session = requests.Session()  # kept: one connection pool per shard process
+        session = self._session
         headers = {"content-type": "application/json"}
         key = self._api_key()
         if key:
@@ -384,6 +386,11 @@ class NeedlepathToolResultBridge(_Base):
         self.events: list[SelectionEvent] = []  # in-memory copy (tests, per-case join)
 
     # -- turn bookkeeping -------------------------------------------------- #
+    #
+    # The turn index counts submitted batches per case for the lifetime of this
+    # element (one shard process). AgentDojo may re-query a case in-process when
+    # the model produced no output; the counter keeps climbing rather than
+    # restarting, so every request id a process emits is unique.
 
     def _next_turn(self, ctx: CaseContext) -> int:
         key = (ctx.user_task_id, ctx.injection_task_id)

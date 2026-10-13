@@ -127,7 +127,7 @@ def test_summary_refuses_nonzero_exit_recorded_in_manifest(tmp_path):
         if a["arm"] == ARM_BASELINE and a["repeat"] == 1:
             a["shard_exit_codes"]["0"] = 1
     runner.manifest_path.write_text(json.dumps(m))
-    with pytest.raises(SummaryGateError, match="exit status"):
+    with pytest.raises(SummaryGateError, match="shard_exit_nonzero"):
         summarize_run(runner.run_root)
 
 
