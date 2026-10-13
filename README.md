@@ -30,9 +30,15 @@ one set of scorers, and one set of seeds. It ships:
 | RULER (long context) | `csbench.suites.ruler` | `python -m csbench.suites.ruler.harness` |
 | SQuAD v2 · BFCL · TruthfulQA | `csbench.suites.{squad,bfcl,truthfulqa}` | `python -m csbench.suites.qa_runner` |
 | GSM8K · GSM-IC (diagnostic) | `csbench.suites.gsm` | `python -m csbench.suites.gsm.runner` |
+| AgentDojo (prompt injection, agentic) | `csbench.suites.agentdojo` | `python -m csbench.suites.agentdojo run` |
 
 GSM8K/GSM-IC is a **diagnostic boundary suite**, not a flagship result: see
 `csbench/suites/gsm/README.md` for why.
+
+The AgentDojo suite is a paired harness (baseline vs. selection at the
+tool-result hop) with whole-arm validity gates and a summarizer that refuses
+incomplete runs; see `csbench/suites/agentdojo/README.md`. No results ship
+with it yet.
 
 ## The arm contract
 
