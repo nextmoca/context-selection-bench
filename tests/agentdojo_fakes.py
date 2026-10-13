@@ -100,9 +100,10 @@ def selector_response(request: dict[str, Any], *, rendered: str, outcome: str = 
         "outcome": outcome,
         "records_expanded": 2,
         "gate": {"engaged": outcome == "engaged", "reason": "engage:fake" if outcome == "engaged" else "standdown:fake",
-                 "signals": {"support_contract": "generic", "semantic_adapters": ["fake_adapter"], "derived_records": 3}},
+                 "signals": {"fake_signal": 1}},
         "safety": {"selection_safe": True, "fallback_required": outcome != "engaged"},
-        "format_metrics": {},
+        # free-form diagnostics; the keys here are invented and mean nothing
+        "format_metrics": {"fake_label": "value_a", "fake_count": 3, "fake_flag": True, "fake_nested": {"x": 1}},
     }
     body.update(overrides)
     return body
@@ -222,10 +223,8 @@ def write_telemetry(
                 engine_latency_ms=10.0,
                 gate_reason="engage:fake" if event == "needlepath_applied" else "standdown:fake",
                 reason="applied" if event == "needlepath_applied" else "stood_down",
-                support_contract="generic",
-                semantic_adapters=["fake_adapter"],
                 records_expanded=2,
-                derived_records=3,
+                format_metrics={"fake_label": "value_a"},
                 case_id=cid,
                 turn_index=turn,
                 request_id=turn_request_id(SUITE, ATTACK, user_task, injection_task, repeat, ARM_NEEDLEPATH, turn),

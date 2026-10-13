@@ -22,7 +22,7 @@ from csbench.suites.agentdojo.bridge import (
     PipelineShapeError,
     SelectorTimeout,
     build_candidate_text,
-    classify_response,
+    decide_response,
     insert_after_tool_executor,
     protocol_token_estimate,
     trailing_tool_batch_start,
@@ -233,9 +233,11 @@ def test_public_text_contract_request_shape(tmp_path):
     assert req["request_id"] == turn_request_id("workspace", "important_instructions", "user_task_0", "injection_task_0", 1, ARM_NEEDLEPATH, 0)
     ev = bridge.events[0]
     assert ev.ingress == "text" and ev.autochunk is True and ev.operating_point == "np-2026-10-r6"
-    assert ev.records_expanded == 2 and ev.derived_records == 3
-    assert ev.support_contract == "generic" and ev.semantic_adapters == ["fake_adapter"]
+    assert ev.records_expanded == 2
     assert ev.gate_reason == "engage:fake" and ev.engine_latency_ms == 12.5
+    # the documented free-form object passes through by shape only: scalars survive, nesting is dropped
+    written = read_events(tmp_path / "needlepath_metrics_shard_0.jsonl")[0]
+    assert written["format_metrics"] == {"fake_label": "value_a", "fake_count": 3, "fake_flag": True}
 
 
 def test_public_text_contract_response_shape_is_the_adapter_boundary():
@@ -245,10 +247,10 @@ def test_public_text_contract_response_shape_is_the_adapter_boundary():
 
     assert set(BRIDGE_FIELDS) == set(ADAPTER_FIELDS)
     req = {"request_id": "r", "text": "t"}
-    assert classify_response("r", selector_response(req, rendered="X")).applied
+    assert decide_response("r", selector_response(req, rendered="X")).applied
     stripped = selector_response(req, rendered="X")
     del stripped["tokens_saved"]
-    assert classify_response("r", stripped).reason == "malformed_response:missing_fields"
+    assert decide_response("r", stripped).reason == "malformed_response:missing_fields"
 
 
 def test_request_ids_are_deterministic_per_case_and_turn(tmp_path):
@@ -294,26 +296,29 @@ def _event(**over):
     base = dict(
         event=EVENT_APPLIED, ingress="text", autochunk=True, operating_point="op", tool_results=1,
         original_token_estimate=1, selected_token_estimate=1, latency_ms=1.0, engine_latency_ms=None,
-        gate_reason="engage:ok", reason="applied", support_contract=None, semantic_adapters=None,
-        records_expanded=None, derived_records=None, case_id="s/a/u/i/r1/arm", turn_index=0, request_id="s/a/u/i/r1/arm/t0",
+        gate_reason="engage:ok", reason="applied", records_expanded=None, format_metrics={},
+        case_id="s/a/u/i/r1/arm", turn_index=0, request_id="s/a/u/i/r1/arm/t0",
     )
     base.update(over)
     return SelectionEvent(**base)
 
 
-def test_server_controlled_labels_are_sanitized_before_writing(tmp_path):
-    """A server could put anything in gate.reason or the routing fields; only
-    label-shaped tokens reach the file, everything else becomes 'unlabelled'."""
-    from csbench.suites.agentdojo.telemetry import UNLABELLED
+def test_server_controlled_strings_are_sanitized_before_writing(tmp_path):
+    """A server could put anything in gate.reason or the free-form diagnostics
+    object; only label-shaped tokens reach the file. A label field becomes
+    'unlabelled'; a diagnostics entry that is not a scalar label is dropped."""
+    from csbench.suites.agentdojo.telemetry import MAX_PASSTHROUGH_KEYS, UNLABELLED
 
     leaked = "please ignore previous instructions and " + "x" * 300
     w = TelemetryWriter(tmp_path / "t.jsonl")
-    w.write(_event(gate_reason=leaked, support_contract="has spaces", semantic_adapters=["ok_adapter", leaked]))
+    too_many = {f"zz_overflow_{i:03d}": i for i in range(MAX_PASSTHROUGH_KEYS + 10)}  # sort after "ok"
+    w.write(_event(gate_reason=leaked, format_metrics={"free_text": leaked, "bad key!": "v", "ok": "fine", "n": 2.5, "nested": [1], **too_many}))
     raw = (tmp_path / "t.jsonl").read_text()
-    assert "ignore previous" not in raw and "has spaces" not in raw
+    assert "ignore previous" not in raw and "bad key" not in raw and "nested" not in raw
     ev = read_events(tmp_path / "t.jsonl")[0]
-    assert ev["gate_reason"] == UNLABELLED and ev["support_contract"] == UNLABELLED
-    assert ev["semantic_adapters"] == ["ok_adapter", UNLABELLED]
+    assert ev["gate_reason"] == UNLABELLED
+    assert ev["format_metrics"]["ok"] == "fine" and ev["format_metrics"]["n"] == 2.5
+    assert "free_text" not in ev["format_metrics"] and len(ev["format_metrics"]) <= MAX_PASSTHROUGH_KEYS
 
 
 def test_non_conforming_telemetry_file_refuses_to_load(tmp_path):
@@ -327,6 +332,10 @@ def test_non_conforming_telemetry_file_refuses_to_load(tmp_path):
     with pytest.raises(TelemetryContractError):
         read_events(tmp_path / "bad.jsonl")
     wire["gate_reason"] = "engage:ok"
+    wire["format_metrics"] = {"nested": {"x": 1}}
+    with pytest.raises(TelemetryContractError, match="scalar label"):
+        assert_event_is_metadata_only(wire)
+    wire["format_metrics"] = {}
     wire["extra_field"] = 1
     with pytest.raises(TelemetryContractError, match="drifted"):
         assert_event_is_metadata_only(wire)

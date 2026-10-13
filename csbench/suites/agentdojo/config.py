@@ -98,8 +98,6 @@ class SelectorIdentity:
     operating_point: str = DEFAULT_OPERATING_POINT
     snapshot: Optional[str] = None
     entry_point: str = "text"
-    support_contract: Optional[str] = None
-    adapter_route: Optional[str] = None
     timeout_s: float = 20.0
     api_key_env: list[str] = field(default_factory=lambda: list(DEFAULT_SELECTOR_KEY_ENV))
 

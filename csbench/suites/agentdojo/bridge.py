@@ -4,8 +4,8 @@ This element is a transport. It collects the contiguous trailing tool-result
 messages, builds a raw text candidate, submits it through the hosted selector's
 public simple-text ingress (``text`` + ``budget.autochunk``), and applies the
 rendered selection the server returned when, and only when, the server
-engaged. It never decides what to keep: no chunking, ranking, scoring or
-filtering happens here. On every other outcome (stand-down, fallback, empty or
+engaged. It never decides what to keep: the server renders the selection and
+the bridge forwards it unchanged. On every other outcome (stand-down, fallback, empty or
 malformed response, timeout, exception) the original tool messages are passed
 to the model unchanged, byte for byte.
 
@@ -161,7 +161,7 @@ def apply_selection(tool_messages: Sequence[dict[str, Any]], rendered: str) -> l
 
 
 # --------------------------------------------------------------------------- #
-# Response classification (pure)
+# Response decision (pure)
 # --------------------------------------------------------------------------- #
 
 
@@ -172,10 +172,8 @@ class Decision:
     rendered: Optional[str] = None
     gate_reason: Optional[str] = None
     engine_latency_ms: Optional[float] = None
-    support_contract: Optional[str] = None
-    semantic_adapters: Optional[list[str]] = None
     records_expanded: Optional[int] = None
-    derived_records: Optional[int] = None
+    format_metrics: dict[str, Any] = field(default_factory=dict)
 
     @property
     def applied(self) -> bool:
@@ -194,37 +192,21 @@ def _opt_float(value: Any) -> Optional[float]:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
-def _routing(response: dict[str, Any]) -> dict[str, Any]:
-    """Routing identity, read from wherever the response carries it (gate
-    signals or format metrics); absent fields stay ``None``."""
+def _diagnostics(response: dict[str, Any]) -> dict[str, Any]:
+    """Documented diagnostic fields: ``gate.reason``, the top-level
+    ``records_expanded`` (present only when autochunk ran), and the free-form
+    ``format_metrics`` object passed through opaquely (the telemetry writer
+    reduces it to scalar, label-shaped entries). Absent fields stay ``None``."""
     gate = response.get("gate") if isinstance(response.get("gate"), dict) else {}
-    signals = gate.get("signals") if isinstance(gate.get("signals"), dict) else {}
-    fm = response.get("format_metrics") if isinstance(response.get("format_metrics"), dict) else {}
-    sources = (response, signals, fm)
-
-    def pick(key: str) -> Any:
-        for src in sources:
-            if key in src:
-                return src[key]
-        return None
-
-    adapters = pick("semantic_adapters")
-    if isinstance(adapters, str):
-        adapters = [adapters]
-    elif isinstance(adapters, list):
-        adapters = [str(a) for a in adapters]
-    else:
-        adapters = None
+    fm = response.get("format_metrics")
     return {
         "gate_reason": _opt_str(gate.get("reason")) if gate else None,
-        "support_contract": _opt_str(pick("support_contract")),
-        "semantic_adapters": adapters,
-        "records_expanded": _opt_int(pick("records_expanded")),
-        "derived_records": _opt_int(pick("derived_records")),
+        "records_expanded": _opt_int(response.get("records_expanded")),
+        "format_metrics": dict(fm) if isinstance(fm, dict) else {},
     }
 
 
-def classify_response(request_id: str, response: Any) -> Decision:
+def decide_response(request_id: str, response: Any) -> Decision:
     """Decide applied / passthrough / fail-open from the server's answer.
 
     The decision reads only outcome flags the server set; it never inspects
@@ -243,9 +225,9 @@ def classify_response(request_id: str, response: Any) -> Decision:
     if not isinstance(rendered, str):
         return Decision(EVENT_FAIL_OPEN, "malformed_response:rendered_context_not_text")
 
-    routing = _routing(response)
+    diagnostics = _diagnostics(response)
     engine_latency = _opt_float(response.get("engine_latency_ms"))
-    common = dict(engine_latency_ms=engine_latency, **routing)
+    common = dict(engine_latency_ms=engine_latency, **diagnostics)
 
     outcome = response.get("outcome")
     safety = response.get("safety") if isinstance(response.get("safety"), dict) else {}
@@ -437,7 +419,7 @@ class NeedlepathToolResultBridge(_Base):
         t0 = self.clock()
         try:
             response = self.transport(request)
-            decision = classify_response(rid, response)
+            decision = decide_response(rid, response)
         except SelectorTimeout:
             decision = Decision(EVENT_FAIL_OPEN, "timeout")
         except Exception as exc:  # fail open on anything the transport raises
@@ -458,10 +440,8 @@ class NeedlepathToolResultBridge(_Base):
             engine_latency_ms=decision.engine_latency_ms,
             gate_reason=decision.gate_reason,
             reason=decision.reason,
-            support_contract=decision.support_contract,
-            semantic_adapters=decision.semantic_adapters,
             records_expanded=decision.records_expanded,
-            derived_records=decision.derived_records,
+            format_metrics=decision.format_metrics,
             case_id=cid,
             turn_index=turn,
             request_id=rid,

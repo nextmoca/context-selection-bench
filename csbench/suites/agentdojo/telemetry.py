@@ -1,13 +1,20 @@
 """Selection telemetry: one metadata-only JSONL event per submitted batch.
 
-The event schema is closed (``EVENT_FIELDS``). An event never carries prompt
-text, tool-result text, rendered context, record excerpts or credentials: the
-writer accepts only the fields below; every string the *server* controls
-(``gate_reason``, ``support_contract``, ``semantic_adapters``, and the
-operating point and ingress echoed from configuration) must match a strict
-label syntax or is replaced by the ``UNLABELLED`` sentinel before writing; and
-``assert_event_is_metadata_only`` rejects any event whose strings do not
-conform, so a non-conforming file cannot be read back either.
+The event schema is closed (``EVENT_FIELDS``) and names only fields that are
+documented on the public wire, plus the harness's own identifiers. An event
+never carries prompt text, tool-result text, rendered context, record
+excerpts or credentials:
+
+- every string the *server* controls (``gate_reason`` from the documented
+  ``gate.reason``, and the operating point and ingress echoed from
+  configuration) must match a strict label syntax or is replaced by the
+  ``UNLABELLED`` sentinel before writing;
+- ``format_metrics`` is an opaque passthrough of the response's documented
+  free-form ``format_metrics`` object, filtered by *shape* only: label-shaped
+  keys with scalar label, number, boolean or null values survive, everything
+  else is dropped, and no key is named anywhere in this package;
+- ``assert_event_is_metadata_only`` rejects any event whose strings do not
+  conform, so a non-conforming file cannot be read back either.
 """
 
 from __future__ import annotations
@@ -16,7 +23,7 @@ import json
 import os
 import re
 import threading
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
@@ -27,7 +34,8 @@ EVENTS = (EVENT_APPLIED, EVENT_PASSTHROUGH, EVENT_FAIL_OPEN)
 
 INGRESS_TEXT = "text"
 
-# The protocol's field list, plus the stable case-and-turn identity.
+# The closed field set: documented wire fields, the bridge's own measurements,
+# and the stable case-and-turn identity.
 EVENT_FIELDS = (
     "event",
     "ingress",
@@ -40,22 +48,22 @@ EVENT_FIELDS = (
     "engine_latency_ms",
     "gate_reason",
     "reason",
-    "support_contract",
-    "semantic_adapters",
     "records_expanded",
-    "derived_records",
+    "format_metrics",
     "case_id",
     "turn_index",
     "request_id",
 )
 
 # Labels are short tokens: letters, digits and a few separators. Anything else
-# in a label field is content, not a label.
+# in a label position is content, not a label.
 LABEL_RE = re.compile(r"^[A-Za-z0-9_.:+-]{1,128}$")
 # Ids are built by this harness (``ids.py``) and additionally contain "/".
 ID_RE = re.compile(r"^[A-Za-z0-9_.:/+-]{1,256}$")
-LABEL_FIELDS = ("ingress", "operating_point", "gate_reason", "reason", "support_contract", "semantic_adapters")
+LABEL_FIELDS = ("ingress", "operating_point", "gate_reason", "reason")
 ID_FIELDS = ("case_id", "request_id")
+PASSTHROUGH_FIELD = "format_metrics"
+MAX_PASSTHROUGH_KEYS = 64
 UNLABELLED = "unlabelled"
 
 
@@ -63,19 +71,42 @@ class TelemetryContractError(ValueError):
     """An event violates the metadata-only contract."""
 
 
-def sanitize_labels(event: dict[str, Any]) -> dict[str, Any]:
-    """Replace any non-conforming label string with ``UNLABELLED``.
+def _is_scalar_metric(value: Any) -> bool:
+    if value is None or isinstance(value, bool):
+        return True
+    if isinstance(value, (int, float)):
+        return True
+    return isinstance(value, str) and bool(LABEL_RE.match(value))
 
-    Label fields echo strings the selection server controls; this guarantees
-    no server-supplied text reaches the telemetry file, whatever it contains.
+
+def filter_passthrough(metrics: Any) -> dict[str, Any]:
+    """Shape-only filter for the documented free-form diagnostics object.
+
+    Keeps up to ``MAX_PASSTHROUGH_KEYS`` entries whose key is label-shaped and
+    whose value is a scalar label, number, boolean or null. Nested objects,
+    lists and free text never pass. Keys are taken as they come; none is
+    named here.
     """
+    if not isinstance(metrics, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for key in sorted(metrics):
+        if len(out) >= MAX_PASSTHROUGH_KEYS:
+            break
+        if isinstance(key, str) and LABEL_RE.match(key) and _is_scalar_metric(metrics[key]):
+            out[key] = metrics[key]
+    return out
+
+
+def sanitize_labels(event: dict[str, Any]) -> dict[str, Any]:
+    """Replace any non-conforming label string with ``UNLABELLED`` and reduce
+    the passthrough object to its conforming entries."""
     out = dict(event)
     for key in LABEL_FIELDS:
         value = out.get(key)
-        if isinstance(value, list):
-            out[key] = [v if isinstance(v, str) and LABEL_RE.match(v) else UNLABELLED for v in value]
-        elif isinstance(value, str) and not LABEL_RE.match(value):
+        if isinstance(value, str) and not LABEL_RE.match(value):
             out[key] = UNLABELLED
+    out[PASSTHROUGH_FIELD] = filter_passthrough(out.get(PASSTHROUGH_FIELD))
     return out
 
 
@@ -92,13 +123,11 @@ class SelectionEvent:
     engine_latency_ms: Optional[float]
     gate_reason: Optional[str]
     reason: str
-    support_contract: Optional[str]
-    semantic_adapters: Optional[list[str]]
     records_expanded: Optional[int]
-    derived_records: Optional[int]
-    case_id: str
-    turn_index: int
-    request_id: str
+    format_metrics: dict[str, Any] = field(default_factory=dict)
+    case_id: str = ""
+    turn_index: int = 0
+    request_id: str = ""
 
     def to_wire(self) -> dict[str, Any]:
         d = asdict(self)
@@ -108,7 +137,8 @@ class SelectionEvent:
 
 def assert_event_is_metadata_only(event: dict[str, Any]) -> None:
     """Reject an event carrying anything other than the closed field set, a
-    nested structure, or a string that is not a conforming label or id."""
+    nested structure outside the passthrough object, or a string that is not
+    a conforming label or id."""
     extra = set(event) - set(EVENT_FIELDS)
     missing = set(EVENT_FIELDS) - set(event)
     if extra or missing:
@@ -116,16 +146,21 @@ def assert_event_is_metadata_only(event: dict[str, Any]) -> None:
     if event["event"] not in EVENTS:
         raise TelemetryContractError(f"unknown event type {event['event']!r}")
     for key, value in event.items():
-        values = value if isinstance(value, list) else [value]
-        for v in values:
-            if isinstance(v, (dict, tuple, set)):
-                raise TelemetryContractError(f"field {key!r} holds a nested structure; events are flat")
-            if isinstance(v, str):
-                pattern = ID_RE if key in ID_FIELDS else LABEL_RE
-                if not pattern.match(v):
-                    raise TelemetryContractError(
-                        f"field {key!r} holds a non-label string ({len(v)} chars); events carry labels, not content"
-                    )
+        if key == PASSTHROUGH_FIELD:
+            if not isinstance(value, dict) or len(value) > MAX_PASSTHROUGH_KEYS:
+                raise TelemetryContractError(f"field {key!r} must be a bounded flat object")
+            for k, v in value.items():
+                if not (isinstance(k, str) and LABEL_RE.match(k) and _is_scalar_metric(v)):
+                    raise TelemetryContractError(f"field {key!r} entry {str(k)[:32]!r} is not a scalar label or number")
+            continue
+        if isinstance(value, (dict, list, tuple, set)):
+            raise TelemetryContractError(f"field {key!r} holds a nested structure; events are flat")
+        if isinstance(value, str):
+            pattern = ID_RE if key in ID_FIELDS else LABEL_RE
+            if not pattern.match(value):
+                raise TelemetryContractError(
+                    f"field {key!r} holds a non-label string ({len(value)} chars); events carry labels, not content"
+                )
 
 
 class TelemetryWriter:

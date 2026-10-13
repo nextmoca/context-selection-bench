@@ -51,8 +51,9 @@ bridge:
    malformed response, timeout, any exception) hands back the original message
    objects untouched.
 
-The bridge is a transport. It holds no chunking, ranking or filtering logic;
-what to keep is decided server-side and rendered verbatim.
+The bridge is a transport. It does not decide what to keep: the server renders
+the selection and the bridge forwards it verbatim or passes the originals
+through.
 
 ### Telemetry (`telemetry.py`)
 
@@ -60,11 +61,13 @@ One JSONL event per submitted batch, metadata only (no prompt text, tool text,
 rendered context or credentials), with a closed field set:
 `event`, `ingress`, `autochunk`, `operating_point`, `tool_results`,
 `original_token_estimate`, `selected_token_estimate`, `latency_ms`,
-`engine_latency_ms`, `gate_reason`, `reason`, `support_contract`,
-`semantic_adapters`, `records_expanded`, `derived_records`, `case_id`,
-`turn_index`, `request_id`. The token estimator is `max(1, len(text) // 4)`:
-deterministic and sufficient for within-run comparison, not provider-billed
-accounting.
+`engine_latency_ms` (documented), `gate_reason` (the documented `gate.reason`),
+`reason` (the bridge's own decision), `records_expanded` (documented),
+`format_metrics` (an opaque passthrough of the documented free-form
+`format_metrics` object, reduced to scalar label-shaped entries; no key is
+named by the harness), `case_id`, `turn_index`, `request_id`. The token
+estimator is `max(1, len(text) // 4)`: deterministic and sufficient for
+within-run comparison, not provider-billed accounting.
 
 ## Protocol invariants
 
