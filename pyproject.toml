@@ -24,6 +24,9 @@ openai = ["openai>=1.0"]
 qa = ["datasets>=2.14"]
 # The Compresr compression arm (commercial API).
 compresr = ["compresr>=2.5"]
+# The AgentDojo suite (csbench.suites.agentdojo): the benchmark package plus the
+# Gemini API-key client it is run with. Its tests run without either installed.
+agentdojo = ["agentdojo>=0.1.35,<0.2", "google-genai>=1.0"]
 # Local compression baselines. Heavy (GPU-oriented); install only to run them.
 llmlingua2 = ["llmlingua>=0.2", "torch>=2.2"]
 cpc = [
