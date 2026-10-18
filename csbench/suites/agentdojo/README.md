@@ -43,17 +43,24 @@ bridge:
 3. submits it through the public simple-text ingress (`text` plus
    `budget.autochunk = true`) with a deterministic `request_id` built from
    suite, user task, injection task, arm, repeat and turn index;
-4. applies the rendered selection only when the server engaged and returned
-   non-empty rendered text: it replaces the first tool result, and every later
-   tool message in the batch becomes a fixed omission marker, so message count
-   and order are preserved;
-5. otherwise (stand-down, fallback, escalation, unsafe verdict, empty or
-   malformed response, timeout, any exception) hands back the original message
-   objects untouched.
+4. applies the rendered text when the server engaged and returned non-empty
+   rendered text: it replaces the first tool result, and every later tool
+   message in the batch becomes a fixed omission marker, so message count and
+   order are preserved;
+5. applies the rendered text the same way when the server answers with one of
+   its two security deliveries, `sanitized_fallback` or `blocked`. The engine
+   contract (`public_outcome` in the adapter server) says a caller must never
+   restore raw context after Needlepath has quarantined it, so the original
+   tool results are not handed back; the event reason is `applied:<outcome>`.
+   An empty render on either outcome is a fail-open (`empty_selection`), the
+   same as an empty engaged response;
+6. otherwise (stand-down, fallback, escalation, unsafe verdict on an engaged
+   response, empty or malformed response, timeout, any exception) hands back
+   the original message objects untouched.
 
-The bridge is a transport. It does not decide what to keep: the server renders
-the selection and the bridge forwards it verbatim or passes the originals
-through.
+The bridge is a transport. It does not decide what to keep and does not
+compose: the server renders the text and the bridge forwards it verbatim or
+passes the originals through.
 
 ### Telemetry (`telemetry.py`)
 
@@ -150,8 +157,10 @@ list; nothing else is monkeypatched.
 ## Tests
 
 `tests/test_agentdojo_*.py` run offline with fakes and cover the protocol's
-regression list: baseline equivalence, applied selection, fail-open on
-timeout / exception / empty / stand-down / malformed, context isolation, the
+regression list: baseline equivalence, applied selection, applied security
+deliveries (`sanitized_fallback`, `blocked`) with fail-open on an empty
+render, fail-open on timeout / exception / empty / stand-down / malformed,
+context isolation, the
 public-text contract, telemetry privacy, row completeness (559 of 560 fails
 the arm), pair matching, retry isolation and model-alias recording. One
 integration test exercises the real `AgentPipeline` with a scripted LLM when

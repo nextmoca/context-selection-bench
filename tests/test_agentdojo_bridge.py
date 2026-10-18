@@ -145,6 +145,39 @@ def test_applied_single_result_has_no_marker(tmp_path):
     assert OMISSION_MARKER not in freeze(out)
 
 
+@pytest.mark.parametrize("outcome", ["sanitized_fallback", "blocked"])
+def test_security_delivery_with_text_is_applied_as_rendered(tmp_path, outcome):
+    msgs = conversation_with_tool_batch(["RAW WITH INJECTED SPAN", "SECOND RAW"])
+    bridge, _ = make_bridge(
+        lambda req: selector_response(
+            req, rendered="SERVER PACKET", outcome=outcome, fallback_used=(outcome == "blocked"),
+            safety={"selection_safe": False, "fallback_required": True},
+            gate={"engaged": False, "reason": "standdown:fake", "signals": {}},
+        ),
+        tmp_path,
+    )
+    out = run(bridge, msgs)
+    assert out[-2]["content"] == [{"type": "text", "content": "SERVER PACKET"}]
+    assert out[-1]["content"] == [{"type": "text", "content": OMISSION_MARKER}]
+    assert "RAW WITH INJECTED SPAN" not in freeze(out)
+    ev = bridge.events[-1]
+    assert (ev.event, ev.reason) == (EVENT_APPLIED, f"applied:{outcome}")
+
+
+@pytest.mark.parametrize("outcome", ["sanitized_fallback", "blocked"])
+def test_security_delivery_with_empty_text_fails_open(tmp_path, outcome):
+    msgs = conversation_with_tool_batch(["TOOL OUTPUT A", "TOOL OUTPUT B"])
+    before = freeze(msgs)
+    bridge, _ = make_bridge(
+        lambda req: selector_response(req, rendered="  \n", outcome=outcome, safety={"selection_safe": False, "fallback_required": True}),
+        tmp_path,
+    )
+    out = run(bridge, msgs)
+    assert out is msgs and freeze(out) == before
+    ev = bridge.events[-1]
+    assert (ev.event, ev.reason) == (EVENT_FAIL_OPEN, "empty_selection")
+
+
 def test_no_tool_batch_means_no_request(tmp_path):
     msgs = conversation_with_tool_batch(["x"])[:3]  # ends with the assistant turn
     bridge, transport = make_bridge(lambda req: selector_response(req, rendered="y"), tmp_path)

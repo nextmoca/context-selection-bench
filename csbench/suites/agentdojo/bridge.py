@@ -210,9 +210,12 @@ def decide_response(request_id: str, response: Any) -> Decision:
     """Decide applied / passthrough / fail-open from the server's answer.
 
     The decision reads only outcome flags the server set; it never inspects
-    the content to choose what to keep. A selection is applied only on an
-    explicit ``outcome == "engaged"`` with non-empty rendered text and no
-    fallback, safety or gate signal to the contrary.
+    the content to choose what to keep. A selection is applied on an explicit
+    ``outcome == "engaged"`` with non-empty rendered text and no fallback,
+    safety or gate signal to the contrary, and on the server's two security
+    deliveries (``sanitized_fallback``, ``blocked``) whenever their rendered
+    text is non-empty: the engine contract forbids restoring raw context after
+    Needlepath has quarantined it.
     """
     if not isinstance(response, dict):
         return Decision(EVENT_FAIL_OPEN, "malformed_response:not_an_object")
@@ -231,6 +234,19 @@ def decide_response(request_id: str, response: Any) -> Decision:
 
     outcome = response.get("outcome")
     safety = response.get("safety") if isinstance(response.get("safety"), dict) else {}
+    # Security deliveries. The server has replaced the raw context with one
+    # model-facing packet (sanitized_fallback) or with its own block text
+    # (blocked). Both carry safety.selection_safe = False by construction, and
+    # both must be applied exactly as rendered: restoring the original text
+    # would hand the model the quarantined spans. The non-empty render is the
+    # proof that this is a delivery, not an empty response. Engine contract:
+    # benchmarks/needlepath_adapter_server.py, public_outcome ("a caller ...
+    # must never restore raw context after Needlepath has quarantined it");
+    # the Python SDK applies the same way (Reason.SANITIZED_FALLBACK).
+    if outcome in ("sanitized_fallback", "blocked"):
+        if not rendered.strip():
+            return Decision(EVENT_FAIL_OPEN, "empty_selection", **common)
+        return Decision(EVENT_APPLIED, f"applied:{outcome}", rendered=rendered, **common)
     if outcome == "stood_down":
         return Decision(EVENT_PASSTHROUGH, "stood_down", **common)
     if outcome == "escalated":
