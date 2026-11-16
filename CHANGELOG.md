@@ -3,6 +3,21 @@
 All notable changes to this project are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+- `csbench.suites.agentdojo`: a versioned AgentDojo harness. Two matched arms
+  (AgentDojo's unmodified pipeline, and the same pipeline with a selection
+  element inserted after the tool executor that submits only the trailing
+  tool-result batch through the hosted method's public simple-text ingress and
+  fails open on every non-engaged outcome). Typed run configuration, a
+  `RunManifest` validated before execution and before aggregation,
+  metadata-only selection telemetry, a Gemini API-key provider for AgentDojo's
+  Google LLM element, a neutral replacement for the non-scored preflight, a
+  sharded runner with whole-arm validity gates and archived retries, and a
+  summarizer that refuses incomplete or mismatched runs. Offline regression
+  tests with fakes. No results are included; the `agentdojo` extra is optional.
+
 ## 1.2.0 - 2026-09-03
 
 Data release. Adds the full-size RULER run on the deployed engine and corrects
