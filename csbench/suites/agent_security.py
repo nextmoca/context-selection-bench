@@ -358,6 +358,10 @@ def check_case_set(rows: Sequence[Row], config: Mapping[str, Any], arm: str) -> 
     keys = [r.case_key for r in rows]
     if len(keys) != len(set(keys)):
         raise ScoreError(f"{arm}: {len(keys) - len(set(keys))} duplicated cases")
+    attack = config["benchmark"]["attack"]
+    other_attacks = sorted({str(r.attack) for r in rows if r.attack is not None and r.attack != attack})
+    if other_attacks:
+        raise ScoreError(f"{arm}: attacked rows name {other_attacks}, not the configured attack {attack!r}")
     for suite, plan in config["benchmark"]["suites"].items():
         att = {(r.user_task_id, r.injection_task_id) for r in rows if r.suite == suite and r.kind == "attacked"}
         ben = {r.user_task_id for r in rows if r.suite == suite and r.kind == "benign"}
@@ -700,6 +704,8 @@ def cli(package_dir: Path, prog: str, argv: Optional[list[str]] = None) -> int:
     if args.cmd == "check":
         summary = load_json(paths["summary"])
         validate_summary(summary, config)
+        if summary["source"] == "rows" and not paths["rows"].exists():
+            raise ScoreError("summary.json is built from rows but rows.jsonl is missing")
         if paths["rows"].exists():
             rebuilt = summary_from_rows(config, read_rows_jsonl(paths["rows"]))
             if rebuilt["arms"] != summary["arms"]:

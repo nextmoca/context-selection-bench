@@ -23,8 +23,8 @@ All notable changes to this project are documented here. This project adheres to
   `nextmoca/agentdojo`, MIT upstreams) at an exact commit and carries the run
   configuration (`run_config.json`), a reproduction script that refuses to
   make paid calls without an explicit opt-in, and the results of the published
-  GPT-4o runs (`results/summary.json`; for AgentDojo also one record per
-  scored task in `results/rows.jsonl`). A shared scorer
+  GPT-4o runs (`results/summary.json` and one record per scored task in
+  `results/rows.jsonl`). A shared scorer
   (`csbench.suites.agent_security`) counts AgentDojo-format rows, refuses
   incomplete, duplicated or unpaired runs, and backs a `check` command that
   re-validates the committed results offline. The README gains an "Agent

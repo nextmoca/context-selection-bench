@@ -5,11 +5,12 @@ and AgentDyn: it optimizes prompt injections against a given agent and
 defense, observing only whether each candidate succeeds, then benchmarks the
 optimized injections. This package carries the run configuration that pins
 the fork (``run_config.json``), a reproduction script (``reproduce.sh``), and
-the results of the published run (``results/summary.json``). Scoring is shared
-with the other agent-security suites; see ``csbench.suites.agent_security``.
+the results of the published run: ``results/summary.json`` and one record per
+scored task in ``results/rows.jsonl``. Scoring is shared with the other
+agent-security suites; see ``csbench.suites.agent_security``.
 
 ``python -m csbench.suites.autodojo check`` validates the committed results
-offline. ``python -m csbench.suites.autodojo score --none DIR --next-moca DIR``
+offline, including that ``rows.jsonl`` reproduces ``summary.json``. ``python -m csbench.suites.autodojo score --none DIR --next-moca DIR``
 scores a fresh run.
 """
 

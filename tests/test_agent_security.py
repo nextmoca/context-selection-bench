@@ -8,6 +8,7 @@ each other and against the published headline counts.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import re
@@ -497,11 +498,56 @@ def test_published_headline_counts(name):
     assert s["build_id"] == config(name)["arms"]["next_moca"]["build_id"]
 
 
-def test_agentdojo_rows_reproduce_the_summary():
-    rows = A.read_rows_jsonl(SUITES["agentdojo"] / "results" / "rows.jsonl")
-    assert len(rows) == 2 * (949 + 97)
-    rebuilt = A.summary_from_rows(config("agentdojo"), rows)
-    assert rebuilt["arms"] == summary("agentdojo")["arms"]
+# Rows per arm (attacked + benign) in each committed rows.jsonl.
+PUBLISHED_ROWS_PER_ARM = {"agentdojo": 949 + 97, "agentdyn": 560 + 60, "autodojo": 144 + 16}
+
+
+@pytest.mark.parametrize("name", sorted(SUITES))
+def test_committed_rows_reproduce_the_summary(name):
+    rows = A.read_rows_jsonl(SUITES[name] / "results" / "rows.jsonl")
+    assert len(rows) == 2 * PUBLISHED_ROWS_PER_ARM[name]
+    s = summary(name)
+    assert s["source"] == "rows"
+    rebuilt = A.summary_from_rows(config(name), rows)
+    assert rebuilt["arms"] == s["arms"]
+
+
+# sha256 of each committed rows.jsonl. Swapping two outcomes inside one arm and
+# suite keeps every count; only the bytes catch it.
+PUBLISHED_ROWS_SHA256 = {
+    "agentdojo": "ad8bc11d0fe581fb38e699bf282f3ffa8ae7d0683403b3194331c7ce71ad5540",
+    "agentdyn": "50ff72be871a81dfea1a6b7ee9d83f1df8704ea0265f4d37322db73ffac9c229",
+    "autodojo": "21fc3870ea4de17559fbbdf9182a205f46621416cb7ea989a9a5f5de616a9307",
+}
+
+
+@pytest.mark.parametrize("name", sorted(SUITES))
+def test_committed_rows_are_the_published_bytes(name):
+    data = (SUITES[name] / "results" / "rows.jsonl").read_bytes()
+    assert hashlib.sha256(data).hexdigest() == PUBLISHED_ROWS_SHA256[name]
+
+
+def test_check_refuses_a_row_sourced_summary_without_its_rows(tmp_path):
+    pkg = tmp_path / "pkg"
+    (pkg / "results").mkdir(parents=True)
+    src = SUITES["autodojo"]
+    (pkg / "run_config.json").write_bytes((src / "run_config.json").read_bytes())
+    (pkg / "results" / "summary.json").write_bytes((src / "results" / "summary.json").read_bytes())
+    with pytest.raises(A.ScoreError, match="rows.jsonl is missing"):
+        A.cli(pkg, "t", ["check"])
+
+
+def test_rows_naming_another_attack_are_refused():
+    # relabelling every attacked row in both arms keeps every count and the pairing
+    rows = A.read_rows_jsonl(SUITES["autodojo"] / "results" / "rows.jsonl")
+    rows = [
+        A.Row(r.arm, r.suite, r.user_task_id, r.injection_task_id, "other_attack", r.utility, r.security, r.error)
+        if r.attack is not None
+        else r
+        for r in rows
+    ]
+    with pytest.raises(A.ScoreError, match="configured attack"):
+        A.summary_from_rows(config("autodojo"), rows)
 
 
 @pytest.mark.parametrize("name", sorted(SUITES))

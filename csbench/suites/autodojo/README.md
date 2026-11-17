@@ -48,27 +48,28 @@ Full detail in [`run_config.json`](run_config.json).
 
 ## Results
 
-[`results/summary.json`](results/summary.json). Counts are tasks.
+[`results/summary.json`](results/summary.json), with one record per scored
+task in [`results/rows.jsonl`](results/rows.jsonl). Counts are tasks.
 
 | suite | attacked tasks | attack success, none → next_moca | tasks completed under attack, none → next_moca | benign tasks completed, none → next_moca |
 |---|---|---|---|---|
 | banking | 144 | 93 → 17 | 118 (81.9%) → 116 (80.6%) | 14/16 → 14/16 |
 
-Per-row result files and the optimized injection caches for this run are not
-included in this release; the summary records the counts the scorer produced
-from the rows.
+Each row carries the suite, the task ids, the arm and the benchmark's
+utility and security outcomes. The optimized injection caches for this run are
+not included in this release.
 
 ## Checking and re-scoring
 
 ```bash
 pip install -e ".[dev]"
-python -m csbench.suites.autodojo check     # offline consistency check of run_config.json and results/summary.json
+python -m csbench.suites.autodojo check     # offline: rows.jsonl must reproduce summary.json
 python -m csbench.suites.autodojo score --none <logdir> --next-moca <logdir> --build-id <id> --out <dir>/summary.json
 ```
 
-For this suite `check` can confirm only that the committed summary matches the
-pinned configuration, the planned population and its own arithmetic: without
-the per-row files it cannot re-derive the counts. `score` reads
+`check` confirms that the committed summary matches the pinned configuration,
+the planned population and its own arithmetic, and that `rows.jsonl`
+reproduces it. `score` reads
 AgentDojo-format result rows under each arm's log directory and refuses to
 produce a summary when a row is incomplete, unreadable, not boolean-scored or
 marked with a provider error; when a case appears twice; when a suite is not
