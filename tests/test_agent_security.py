@@ -59,7 +59,11 @@ def write_row(root: Path, pipeline, suite, user_task, attack, injection, utility
     d = root / pipeline / suite / user_task / (attack or "none")
     d.mkdir(parents=True, exist_ok=True)
     name = f"{injection}.json" if injection else "none.json"
+    messages = [{"role": "tool", "content": "x"}]
+    if "next_moca" in pipeline:
+        messages[0]["next_moca"] = {"decision": "applied"}
     body = {
+        "messages": messages,
         "suite_name": suite,
         "pipeline_name": pipeline,
         "user_task_id": user_task,
@@ -89,10 +93,10 @@ def tiny_config():
     }
 
 
-def fill_arm(root: Path, pipeline: str, attack_success: set, utility_fail: set = frozenset()):
+def fill_arm(root: Path, pipeline: str, attack_success: set, utility_fail: set = frozenset(), injections=("injection_task_0", "injection_task_1")):
     for u in ("user_task_0", "user_task_1"):
         write_row(root, pipeline, "banking", u, None, None, u not in utility_fail)
-        for i in ("injection_task_0", "injection_task_1"):
+        for i in injections:
             write_row(root, pipeline, "banking", u, "important_instructions", i, (u, i) not in utility_fail, (u, i) in attack_success)
     # AgentDojo's injection-as-user rows: counted, never scored
     write_row(root, pipeline, "banking", "injection_task_0", None, None, True)
@@ -114,12 +118,23 @@ def test_scan_classifies_and_counts_rows(tmp_path):
     }
 
 
-def test_security_true_is_attack_success_and_nothing_else(tmp_path):
+@pytest.mark.parametrize("field,value", [("security", "yes"), ("security", None), ("utility", 1)])
+def test_a_non_boolean_outcome_is_refused(tmp_path, field, value):
     fill_arm(tmp_path / "a", "m", set())
-    # a truthy non-boolean must not count as a successful attack
-    write_row(tmp_path / "a", "m", "banking", "user_task_0", "important_instructions", "injection_task_0", True, "yes")
-    scan = A.scan_arm_dir(tmp_path / "a", "none", "important_instructions", ["banking"])
-    assert A.count_rows(scan.rows, ["banking"])["banking"]["attack_success_k"] == 0
+    kwargs = {"utility": True, "security": False, field: value}
+    write_row(tmp_path / "a", "m", "banking", "user_task_0", "important_instructions", "injection_task_0", kwargs["utility"], kwargs["security"])
+    with pytest.raises(A.ScoreError, match="boolean"):
+        A.scan_arm_dir(tmp_path / "a", "none", "important_instructions", ["banking"])
+
+
+def test_a_row_filed_under_the_wrong_suite_is_refused(tmp_path):
+    fill_arm(tmp_path / "a", "m", set())
+    f = tmp_path / "a" / "m" / "banking" / "user_task_0" / "important_instructions" / "injection_task_0.json"
+    d = json.loads(f.read_text())
+    d["suite_name"] = "slack"
+    f.write_text(json.dumps(d))
+    with pytest.raises(A.ScoreError, match="does not match its directory"):
+        A.scan_arm_dir(tmp_path / "a", "none", "important_instructions", ["banking"])
 
 
 def test_incomplete_and_unreadable_rows_are_set_aside(tmp_path):
@@ -148,9 +163,9 @@ def test_a_case_present_twice_is_refused(tmp_path):
 
 
 def test_unpaired_arms_are_refused(tmp_path):
+    # each arm is a complete 2 x 2 population, but not the same one
     fill_arm(tmp_path / "none", "m", set())
-    fill_arm(tmp_path / "nm", "m-next_moca", set())
-    os.remove(tmp_path / "nm" / "m-next_moca" / "banking" / "user_task_0" / "important_instructions" / "injection_task_0.json")
+    fill_arm(tmp_path / "nm", "m-next_moca", set(), injections=("injection_task_0", "injection_task_2"))
     rows = (
         A.scan_arm_dir(tmp_path / "none", "none", "important_instructions", ["banking"]).rows
         + A.scan_arm_dir(tmp_path / "nm", "next_moca", "important_instructions", ["banking"]).rows
@@ -166,12 +181,80 @@ def test_score_command_writes_a_summary_and_rows_that_check(tmp_path, monkeypatc
     fill_arm(tmp_path / "none", "m", {("user_task_0", "injection_task_0"), ("user_task_1", "injection_task_1")})
     fill_arm(tmp_path / "nm", "m-next_moca", set(), {("user_task_0", "injection_task_1")})
     out = pkg / "results" / "summary.json"
-    assert A.cli(pkg, "t", ["score", "--none", str(tmp_path / "none"), "--next-moca", str(tmp_path / "nm"), "--out", str(out)]) == 0
+    assert A.cli(pkg, "t", ["score", "--none", str(tmp_path / "none"), "--next-moca", str(tmp_path / "nm"), "--out", str(out), "--build-id", "b"]) == 0
     s = A.load_json(out)
     assert s["arms"]["none"]["pooled"]["attack_success_k"] == 2
     assert s["arms"]["next_moca"]["pooled"]["utility_under_attack_k"] == 3
     assert len(A.read_rows_jsonl(pkg / "results" / "rows.jsonl")) == 12
     assert A.cli(pkg, "t", ["check"]) == 0
+
+
+def _pkg(tmp_path):
+    pkg = tmp_path / "pkg"
+    (pkg / "results").mkdir(parents=True)
+    (pkg / "run_config.json").write_text(json.dumps(tiny_config()), encoding="utf-8")
+    return pkg
+
+
+def _score(pkg, none_dir, nm_dir, build_id="b"):
+    return A.cli(pkg, "t", ["score", "--none", str(none_dir), "--next-moca", str(nm_dir), "--build-id", build_id])
+
+
+def test_score_refuses_the_same_directory_for_both_arms(tmp_path):
+    pkg = _pkg(tmp_path)
+    fill_arm(tmp_path / "none", "m", set())
+    with pytest.raises(A.ScoreError, match="not all next_moca pipelines"):
+        _score(pkg, tmp_path / "none", tmp_path / "none")
+
+
+def test_score_refuses_a_defended_arm_without_telemetry(tmp_path):
+    pkg = _pkg(tmp_path)
+    fill_arm(tmp_path / "none", "m", set())
+    fill_arm(tmp_path / "nm", "m-next_moca", set())
+    for f in (tmp_path / "nm").rglob("*.json"):
+        d = json.loads(f.read_text())
+        d["messages"] = [{"role": "tool", "content": "x"}]
+        f.write_text(json.dumps(d))
+    with pytest.raises(A.ScoreError, match="no row carries next_moca telemetry"):
+        _score(pkg, tmp_path / "none", tmp_path / "nm")
+
+
+def test_score_refuses_rows_with_a_provider_error(tmp_path):
+    pkg = _pkg(tmp_path)
+    fill_arm(tmp_path / "none", "m", set())
+    fill_arm(tmp_path / "nm", "m-next_moca", set())
+    write_row(tmp_path / "nm", "m-next_moca", "banking", "user_task_1", "important_instructions", "injection_task_1", False, False, error="RateLimitError")
+    with pytest.raises(A.ScoreError, match="provider error"):
+        _score(pkg, tmp_path / "none", tmp_path / "nm")
+
+
+def test_score_stamps_the_reported_build_id_not_the_configured_one(tmp_path):
+    pkg = _pkg(tmp_path)
+    fill_arm(tmp_path / "none", "m", set())
+    fill_arm(tmp_path / "nm", "m-next_moca", set())
+    out = tmp_path / "fresh" / "summary.json"
+    A.cli(pkg, "t", ["score", "--none", str(tmp_path / "none"), "--next-moca", str(tmp_path / "nm"), "--out", str(out), "--build-id", "fresh123"])
+    assert A.load_json(out)["build_id"] == "fresh123"
+
+
+def test_duplicated_jsonl_rows_are_refused():
+    rows = A.read_rows_jsonl(SUITES["agentdojo"] / "results" / "rows.jsonl")
+    # replace one attacked case with a copy of another in both arms: totals unchanged
+    for arm in A.ARMS:
+        idx = [i for i, r in enumerate(rows) if r.arm == arm and r.kind == "attacked"]
+        rows[idx[1]] = rows[idx[0]]
+    with pytest.raises(A.ScoreError, match="duplicated cases"):
+        A.summary_from_rows(config("agentdojo"), rows)
+
+
+def test_a_bogus_task_replacing_a_real_pair_is_refused():
+    rows = A.read_rows_jsonl(SUITES["agentdojo"] / "results" / "rows.jsonl")
+    for arm in A.ARMS:
+        i = next(i for i, r in enumerate(rows) if r.arm == arm and r.kind == "attacked" and r.suite == "slack")
+        r = rows[i]
+        rows[i] = A.Row(r.arm, r.suite, r.user_task_id, "injection_task_99", r.attack, r.utility, r.security, r.error)
+    with pytest.raises(A.ScoreError, match="slack"):
+        A.summary_from_rows(config("agentdojo"), rows)
 
 
 def test_percentages_round_half_up():
@@ -248,7 +331,30 @@ def test_a_summary_with_an_edited_rate_is_refused():
 def test_a_summary_pinned_to_another_commit_is_refused():
     s = copy.deepcopy(summary("autodojo"))
     s["fork_commit"] = "2" * 40
-    with pytest.raises(A.ScoreError, match="pinned commit"):
+    with pytest.raises(A.ScoreError, match="fork_commit"):
+        A.validate_summary(s, config("autodojo"))
+
+
+@pytest.mark.parametrize("key,value", [("model", "gpt-4o"), ("build_id", "0" * 16), ("attack", "direct"), ("benchmark", "AgentDojo")])
+def test_a_summary_with_an_edited_header_is_refused(key, value):
+    s = copy.deepcopy(summary("agentdyn"))
+    s[key] = value
+    with pytest.raises(A.ScoreError, match=key):
+        A.validate_summary(s, config("agentdyn"))
+
+
+def test_a_count_above_its_population_is_refused():
+    s = copy.deepcopy(summary("autodojo"))
+    c = s["arms"]["none"]["per_suite"]["banking"]
+    c["benign_utility_k"] = 17
+    with pytest.raises(A.ScoreError, match="exceeds its population"):
+        A.validate_summary(s, config("autodojo"))
+
+
+def test_a_summary_with_an_extra_arm_is_refused():
+    s = copy.deepcopy(summary("autodojo"))
+    s["arms"]["other"] = s["arms"]["none"]
+    with pytest.raises(A.ScoreError, match="summary arms"):
         A.validate_summary(s, config("autodojo"))
 
 

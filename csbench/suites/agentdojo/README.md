@@ -65,8 +65,9 @@ CSBENCH_CONFIRM_PAID_RUN=1 bash csbench/suites/agentdojo/published/reproduce.sh 
 ```
 
 `reproduce.sh` clones the fork at the pinned commit, runs both arms with
-AgentDojo's benchmark script and scores them with the same code that checks
-the committed results. It needs `OPENAI_API_KEY` and `NEXT_MOCA_API_KEY`.
+AgentDojo's benchmark script into a new run directory, reads the service's
+build id at the start and the end, and scores the run with the same code that
+checks the committed results. It needs `OPENAI_API_KEY` and `NEXT_MOCA_API_KEY`.
 
 ## Arms
 

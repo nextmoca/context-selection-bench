@@ -75,8 +75,11 @@ configuration, a reproduction script, the scorer and the results.
 Attack success is the benchmark's own `security` check (the injected goal was
 achieved). Tasks completed under attack is the benchmark's `utility` check on
 the same attacked tasks. Each arm ran once; the counts are single samples.
-`python -m csbench.suites.agentdyn check` (likewise `autodojo` and
-`agentdojo.published`) re-validates the committed numbers offline.
+`python -m csbench.suites.agentdojo.published check` rebuilds the AgentDojo
+numbers offline from the committed per-task rows. For AgentDyn and AutoDojo
+the per-row files are not included in this release, so their `check` confirms
+only that each summary matches its pinned configuration, its planned
+population and its own arithmetic.
 
 ## The arm contract
 

@@ -10,8 +10,8 @@
 #   NEXT_MOCA_OPERATING_POINT (default: the value in run_config.json),
 #   WORK (default ./agent-security-work/agentdojo).
 #
-# Output: $WORK/runs/{none,next_moca}/... (AgentDojo rows) and
-# $WORK/results/{summary.json,rows.jsonl}, scored by the same code that
+# Output: $WORK/run-<utc timestamp>/runs/{none,next_moca}/... (AgentDojo rows) and
+# .../results/{summary.json,rows.jsonl}, scored by the same code that
 # checks the committed results.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,6 +41,25 @@ if [ ! -x "$WORK/venv/bin/python" ]; then python3 -m venv "$WORK/venv"; fi
 "$WORK/venv/bin/pip" install --quiet -e "$WORK/fork"
 PY="$WORK/venv/bin/python"
 
+# A fresh run root per invocation: the benchmark scripts skip any row that
+# already exists, so reusing a directory would silently mix runs.
+RUN="$WORK/run-$(date -u +%Y%m%dT%H%M%SZ)"
+[ ! -e "$RUN" ] || { echo "$RUN already exists" >&2; exit 3; }
+mkdir -p "$RUN"
+echo "run root $RUN"
+
+# The service's build id, read at the start and the end of the run; the
+# summary records it, and a run that spans two builds is not scored.
+health_build() {
+  "$PY" -c 'import json, os, urllib.request
+req = urllib.request.Request(os.environ["NEXT_MOCA_URL"].rstrip("/") + "/v1/health",
+                             headers={"Authorization": "Bearer " + os.environ["NEXT_MOCA_API_KEY"]})
+print(json.load(urllib.request.urlopen(req, timeout=20)).get("build_id") or "")'
+}
+BUILD_START=$(health_build)
+[ -n "$BUILD_START" ] || { echo "the service reported no build id" >&2; exit 4; }
+echo "service build $BUILD_START"
+
 cd "$WORK/fork"
 for arm in none next_moca; do
   DEF=(); [ "$arm" = next_moca ] && DEF=(--defense next_moca)
@@ -49,11 +68,14 @@ for arm in none next_moca; do
     for suite in $SUITES; do
       echo "== $arm $phase $suite"
       "$PY" -m agentdojo.scripts.benchmark -s "$suite" --model "$MODEL" --benchmark-version "$VERSION" \
-        --logdir "$WORK/runs/$arm" ${DEF[@]+"${DEF[@]}"} ${ATT[@]+"${ATT[@]}"}
+        --logdir "$RUN/runs/$arm" ${DEF[@]+"${DEF[@]}"} ${ATT[@]+"${ATT[@]}"}
     done
   done
 done
 
+BUILD_END=$(health_build)
+[ "$BUILD_START" = "$BUILD_END" ] || { echo "service build changed during the run ($BUILD_START -> $BUILD_END): not scored" >&2; exit 6; }
+
 cd "$HERE/../../../.."
-"$CSBENCH_PY" -m csbench.suites.agentdojo.published score --none "$WORK/runs/none" --next-moca "$WORK/runs/next_moca" \
-  --out "$WORK/results/summary.json"
+"$CSBENCH_PY" -m csbench.suites.agentdojo.published score --none "$RUN/runs/none" --next-moca "$RUN/runs/next_moca" \
+  --out "$RUN/results/summary.json" --build-id "$BUILD_START"

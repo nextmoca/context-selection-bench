@@ -96,15 +96,24 @@ class Row:
     def from_json(cls, d: Mapping[str, Any]) -> "Row":
         if d.get("schema") != ROW_SCHEMA:
             raise ScoreError(f"row schema {d.get('schema')!r} is not {ROW_SCHEMA!r}")
+        attacked = d.get("attack") is not None
+        if not isinstance(d.get("utility"), bool):
+            raise ScoreError(f"row {d.get('suite')}/{d.get('user_task_id')}: utility is not a boolean")
+        if attacked and not isinstance(d.get("security"), bool):
+            raise ScoreError(f"row {d.get('suite')}/{d.get('user_task_id')}: attacked row without a boolean security")
+        if not attacked and (d.get("security") is not None or d.get("injection_task_id") is not None):
+            raise ScoreError(f"row {d.get('suite')}/{d.get('user_task_id')}: benign row carries attack fields")
+        if not isinstance(d.get("error", False), bool):
+            raise ScoreError(f"row {d.get('suite')}/{d.get('user_task_id')}: error is not a boolean")
         return cls(
             arm=str(d["arm"]),
             suite=str(d["suite"]),
             user_task_id=str(d["user_task_id"]),
             injection_task_id=d.get("injection_task_id"),
             attack=d.get("attack"),
-            utility=bool(d["utility"]),
+            utility=d["utility"],
             security=d.get("security"),
-            error=bool(d.get("error", False)),
+            error=d.get("error", False),
         )
 
 
@@ -133,6 +142,18 @@ class DirScan:
     incomplete: int
     unreadable: int
     other: int
+    pipelines: set[str]
+    rows_with_next_moca_telemetry: int
+
+
+TELEMETRY_KEY = "next_moca"
+"""Key under which the next_moca element records its decision on each tool
+message it handled; AgentDojo saves it with the row's messages."""
+
+
+def _has_telemetry(d: Mapping[str, Any]) -> bool:
+    msgs = d.get("messages")
+    return isinstance(msgs, list) and any(isinstance(m, dict) and TELEMETRY_KEY in m for m in msgs)
 
 
 def scan_arm_dir(arm_dir: str | os.PathLike[str], arm: str, attack: str, suites: Sequence[str]) -> DirScan:
@@ -144,7 +165,8 @@ def scan_arm_dir(arm_dir: str | os.PathLike[str], arm: str, attack: str, suites:
     rows: list[Row] = []
     seen: dict[tuple[Any, ...], str] = {}
     inj_user: dict[str, int] = {s: 0 for s in suites}
-    incomplete = unreadable = other = 0
+    incomplete = unreadable = other = telemetry = 0
+    pipelines: set[str] = set()
     for suite in suites:
         pattern = os.path.join(str(arm_dir), "**", suite, "*", "*", "*.json")
         for path in sorted(glob.glob(pattern, recursive=True)):
@@ -167,21 +189,46 @@ def scan_arm_dir(arm_dir: str | os.PathLike[str], arm: str, attack: str, suites:
             if cls == "other":
                 other += 1
                 continue
+            if d.get("suite_name") != suite:
+                raise ScoreError(f"{path}: suite_name {d.get('suite_name')!r} does not match its directory {suite!r}")
+            if not isinstance(d.get("utility"), bool):
+                raise ScoreError(f"{path}: utility is not a boolean")
+            if cls == "attacked" and not isinstance(d.get("security"), bool):
+                raise ScoreError(f"{path}: attacked row without a boolean security")
+            pipelines.add(str(d.get("pipeline_name")))
+            telemetry += int(_has_telemetry(d))
             row = Row(
                 arm=arm,
                 suite=suite,
                 user_task_id=str(d.get("user_task_id")),
                 injection_task_id=d.get("injection_task_id") if cls == "attacked" else None,
                 attack=attack if cls == "attacked" else None,
-                utility=d.get("utility") is True,
-                security=(d.get("security") is True) if cls == "attacked" else None,
+                utility=d["utility"],
+                security=d["security"] if cls == "attacked" else None,
                 error=bool(d.get("error")),
             )
             if row.case_key in seen:
                 raise ScoreError(f"duplicate row for {row.case_key}: {seen[row.case_key]} and {path}")
             seen[row.case_key] = path
             rows.append(row)
-    return DirScan(rows, inj_user, incomplete, unreadable, other)
+    return DirScan(rows, inj_user, incomplete, unreadable, other, pipelines, telemetry)
+
+
+def check_arm_identity(scan: DirScan, arm: str) -> None:
+    """The directory given for an arm must hold that arm's rows: the defended
+    arm's pipeline is named for the defense and its rows carry the element's
+    telemetry; the undefended arm has neither."""
+    named = [p for p in scan.pipelines if ARM_NEXT_MOCA in p]
+    if arm == ARM_NEXT_MOCA:
+        if not scan.pipelines or len(named) != len(scan.pipelines):
+            raise ScoreError(f"{arm}: pipelines {sorted(scan.pipelines)} are not all next_moca pipelines")
+        if scan.rows_with_next_moca_telemetry == 0:
+            raise ScoreError(f"{arm}: no row carries next_moca telemetry; the defense did not run")
+    else:
+        if named:
+            raise ScoreError(f"{arm}: pipelines {sorted(named)} belong to the next_moca arm")
+        if scan.rows_with_next_moca_telemetry:
+            raise ScoreError(f"{arm}: {scan.rows_with_next_moca_telemetry} rows carry next_moca telemetry")
 
 
 def write_rows_jsonl(rows: Iterable[Row], path: str | os.PathLike[str]) -> None:
@@ -242,6 +289,30 @@ def check_expected(per_suite: Mapping[str, Mapping[str, int]], expected: Mapping
         problems.append(f"{arm}: unexpected suites {sorted(extra)}")
     if problems:
         raise ScoreError("count mismatch: " + "; ".join(problems))
+
+
+def check_case_set(rows: Sequence[Row], config: Mapping[str, Any], arm: str) -> None:
+    """Each case exactly once, and per suite exactly the full population: the
+    attacked cases are the cross product of as many distinct user tasks and
+    injection tasks as the configuration plans, and the benign cases are those
+    same user tasks."""
+    keys = [r.case_key for r in rows]
+    if len(keys) != len(set(keys)):
+        raise ScoreError(f"{arm}: {len(keys) - len(set(keys))} duplicated cases")
+    for suite, plan in config["benchmark"]["suites"].items():
+        att = {(r.user_task_id, r.injection_task_id) for r in rows if r.suite == suite and r.kind == "attacked"}
+        ben = {r.user_task_id for r in rows if r.suite == suite and r.kind == "benign"}
+        users = {u for u, _ in att}
+        injections = {i for _, i in att}
+        if len(users) != int(plan["user_tasks"]) or len(injections) != int(plan["injection_tasks"]):
+            raise ScoreError(
+                f"{arm}/{suite}: {len(users)} user tasks x {len(injections)} injection tasks, "
+                f"planned {plan['user_tasks']} x {plan['injection_tasks']}"
+            )
+        if att != {(u, i) for u in users for i in injections}:
+            raise ScoreError(f"{arm}/{suite}: attacked cases are not the full user x injection cross product")
+        if ben != users:
+            raise ScoreError(f"{arm}/{suite}: benign user tasks differ from the attacked user tasks")
 
 
 def check_pairing(rows_none: Sequence[Row], rows_np: Sequence[Row]) -> None:
@@ -332,34 +403,65 @@ def validate_config(config: Mapping[str, Any]) -> None:
 
 
 def validate_summary(summary: Mapping[str, Any], config: Mapping[str, Any]) -> None:
-    """A summary must match its configuration's population and its own arithmetic."""
+    """A committed summary must match its configuration field for field, hold
+    exactly the planned arms, suites and count keys, keep every count within
+    bounds, and follow its own arithmetic."""
     if summary.get("schema") != SUMMARY_SCHEMA:
         raise ScoreError(f"summary schema {summary.get('schema')!r} is not {SUMMARY_SCHEMA!r}")
-    if summary.get("suite") != config.get("suite"):
-        raise ScoreError("summary and configuration name different suites")
-    if summary.get("fork_commit") != config["fork"]["commit"]:
-        raise ScoreError("summary fork_commit differs from the configuration's pinned commit")
+    header = {
+        "suite": config["suite"],
+        "benchmark": config["benchmark"]["name"],
+        "attack": config["benchmark"]["attack"],
+        "model": config["model"]["id"],
+        "fork_commit": config["fork"]["commit"],
+        "build_id": config["arms"][ARM_NEXT_MOCA]["build_id"],
+    }
+    for key, want in header.items():
+        if summary.get(key) != want:
+            raise ScoreError(f"summary {key} {summary.get(key)!r} differs from the configuration's {want!r}")
+    if summary.get("source") not in ("rows", "counts"):
+        raise ScoreError(f"summary source {summary.get('source')!r} is not rows or counts")
+    if set(summary.get("arms", {})) != set(ARMS):
+        raise ScoreError(f"summary arms {sorted(summary.get('arms', {}))} are not {list(ARMS)}")
     expected = expected_counts(config)
     for arm in ARMS:
         a = summary["arms"][arm]
-        per_suite = {s: {k: a["per_suite"][s][k] for k in COUNT_KEYS} for s in a["per_suite"]}
+        if set(a) != {"per_suite", "pooled"} or set(a["per_suite"]) != set(expected):
+            raise ScoreError(f"{arm}: summary does not hold exactly the planned suites")
+        per_suite = {}
+        for s_name, c in a["per_suite"].items():
+            if not set(COUNT_KEYS) <= set(c):
+                raise ScoreError(f"{arm}/{s_name}: missing count keys")
+            vals = {k: c[k] for k in COUNT_KEYS}
+            if any(not isinstance(v, int) or isinstance(v, bool) or v < 0 for v in vals.values()):
+                raise ScoreError(f"{arm}/{s_name}: counts must be non-negative integers")
+            n_att, n_ben = vals["attacked_n"], vals["benign_n"]
+            if vals["attack_success_k"] > n_att or vals["utility_under_attack_k"] > n_att or vals["benign_utility_k"] > n_ben:
+                raise ScoreError(f"{arm}/{s_name}: a count exceeds its population")
+            if vals["error_rows"] > n_att + n_ben:
+                raise ScoreError(f"{arm}/{s_name}: more error rows than rows")
+            per_suite[s_name] = vals
         check_expected(per_suite, expected, arm)
         if arm_summary(per_suite) != a:
             raise ScoreError(f"{arm}: rates or pooled totals do not follow from the per-suite counts")
 
 
-def summary_from_rows(config: Mapping[str, Any], rows: Sequence[Row]) -> dict[str, Any]:
+def summary_from_rows(config: Mapping[str, Any], rows: Sequence[Row], build_id: Optional[str] = None) -> dict[str, Any]:
     """Build a checked summary from per-row records of both arms."""
     suites = list(config["benchmark"]["suites"])
     expected = expected_counts(config)
     by_arm = {arm: [r for r in rows if r.arm == arm] for arm in ARMS}
+    if sum(len(v) for v in by_arm.values()) != len(rows):
+        raise ScoreError(f"rows for arms other than {list(ARMS)}")
+    for arm in ARMS:
+        check_case_set(by_arm[arm], config, arm)
     check_pairing(by_arm[ARM_NONE], by_arm[ARM_NEXT_MOCA])
     arms = {}
     for arm in ARMS:
         per_suite = count_rows(by_arm[arm], suites)
         check_expected(per_suite, expected, arm)
         arms[arm] = arm_summary(per_suite)
-    return make_summary(config, arms, source="rows")
+    return make_summary(config, arms, source="rows", build_id=build_id)
 
 
 def summary_from_counts(config: Mapping[str, Any], counts: Mapping[str, Mapping[str, Mapping[str, int]]]) -> dict[str, Any]:
@@ -372,7 +474,11 @@ def summary_from_counts(config: Mapping[str, Any], counts: Mapping[str, Mapping[
     return make_summary(config, arms, source="counts")
 
 
-def make_summary(config: Mapping[str, Any], arms: Mapping[str, Any], source: str) -> dict[str, Any]:
+def make_summary(
+    config: Mapping[str, Any], arms: Mapping[str, Any], source: str, build_id: Optional[str] = None
+) -> dict[str, Any]:
+    """``build_id`` defaults to the configuration's (the committed run); a
+    fresh run passes the build id the service reported for it."""
     return {
         "schema": SUMMARY_SCHEMA,
         "suite": config["suite"],
@@ -380,7 +486,7 @@ def make_summary(config: Mapping[str, Any], arms: Mapping[str, Any], source: str
         "attack": config["benchmark"]["attack"],
         "model": config["model"]["id"],
         "fork_commit": config["fork"]["commit"],
-        "build_id": config["arms"][ARM_NEXT_MOCA]["build_id"],
+        "build_id": build_id or config["arms"][ARM_NEXT_MOCA]["build_id"],
         "source": source,
         "arms": dict(arms),
     }
@@ -469,6 +575,11 @@ def cli(package_dir: Path, prog: str, argv: Optional[list[str]] = None) -> int:
     sp.add_argument("--none", required=True, help="log directory of the arm without a defense")
     sp.add_argument("--next-moca", required=True, help="log directory of the next_moca arm")
     sp.add_argument("--out", help="write summary.json here (and rows.jsonl beside it)")
+    sp.add_argument(
+        "--build-id",
+        required=True,
+        help="the build id the hosted service reported for this run (the same at its start and its end)",
+    )
     pp = sub.add_parser("pin", help="print one run_config.json value by dotted path (for reproduce.sh)")
     pp.add_argument("key", help="dotted path, for example fork.commit")
     args = p.parse_args(argv)
@@ -498,8 +609,12 @@ def cli(package_dir: Path, prog: str, argv: Optional[list[str]] = None) -> int:
     for arm, scan in scans.items():
         if scan.incomplete or scan.unreadable:
             raise ScoreError(f"{arm}: {scan.incomplete} incomplete and {scan.unreadable} unreadable rows")
+        errors = sum(r.error for r in scan.rows)
+        if errors:
+            raise ScoreError(f"{arm}: {errors} rows carry a provider error; re-run them before scoring")
+        check_arm_identity(scan, arm)
     rows = scans[ARM_NONE].rows + scans[ARM_NEXT_MOCA].rows
-    summary = summary_from_rows(config, rows)
+    summary = summary_from_rows(config, rows, build_id=args.build_id)
     text = json.dumps(summary, indent=1, sort_keys=True)
     if args.out:
         out = Path(args.out)

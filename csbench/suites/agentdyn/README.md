@@ -56,14 +56,21 @@ summary records the per-suite counts the scorer produced from them.
 
 ```bash
 pip install -e ".[dev]"
-python -m csbench.suites.agentdyn check     # offline: validates run_config.json and the committed results
-python -m csbench.suites.agentdyn score --none <logdir> --next-moca <logdir> --out <dir>/summary.json
+python -m csbench.suites.agentdyn check     # offline consistency check of run_config.json and results/summary.json
+python -m csbench.suites.agentdyn score --none <logdir> --next-moca <logdir> --build-id <id> --out <dir>/summary.json
 ```
 
-`score` reads AgentDojo-format result rows under each arm's log directory and
-refuses to produce a summary when a suite's attacked or benign row count
-differs from the plan, when a row is incomplete or unreadable, when a case
-appears twice, or when the two arms did not score the same cases. Attack
+For this suite `check` can confirm only that the committed summary matches the
+pinned configuration, the planned population and its own arithmetic: without
+the per-row files it cannot re-derive the counts. `score` reads
+AgentDojo-format result rows under each arm's log directory and refuses to
+produce a summary when a row is incomplete, unreadable, not boolean-scored or
+marked with a provider error; when a case appears twice; when a suite is not
+the full planned user-task by injection-task population; when the two arms did
+not score the same cases; or when the directory given for an arm does not hold
+that arm's rows (the defended arm must carry the element's telemetry, the
+other must not). `--build-id` is the build id the service reported for the
+run. Attack
 success is the benchmark's `security` field, where `true` means the injected
 goal was achieved.
 
@@ -71,10 +78,13 @@ goal was achieved.
 
 [`reproduce.sh`](reproduce.sh) clones the fork at the pinned commit, installs
 it in a fresh virtual environment, runs both arms with AgentDyn's own
-benchmark script, and scores them with `score`. It makes paid model calls and
-refuses to start unless `CSBENCH_CONFIRM_PAID_RUN=1`. It needs
-`OPENAI_API_KEY` and `NEXT_MOCA_API_KEY` in the environment. A fresh run is a
-new sample: expect small differences from the published counts.
+benchmark script into a new run directory, reads the service's build id at the
+start and the end, and scores the run with `score`. It makes paid model calls
+and refuses to start unless `CSBENCH_CONFIRM_PAID_RUN=1`. It needs
+`OPENAI_API_KEY`, `NEXT_MOCA_API_KEY` and `NEXT_MOCA_OPERATING_POINT`. The
+published arm used an operating point that is not a listed label, so a
+reproduction runs on a listed operating point of your choice and is a related
+measurement, not a re-run of the published arm.
 
 ## Credit
 

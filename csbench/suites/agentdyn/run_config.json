@@ -54,7 +54,7 @@
    "service": "Next Moca hosted service",
    "service_url": "https://api.nextmoca.com",
    "operating_point": null,
-   "operating_point_note": "An unlisted operating point of the hosted service; the label is not published. Reproduction uses the account's default operating point unless NEXT_MOCA_OPERATING_POINT is set.",
+   "operating_point_note": "An unlisted operating point of the hosted service; the label is not published, so the published arm cannot be selected by a reproduction. reproduce.sh requires NEXT_MOCA_OPERATING_POINT to name a listed operating point explicitly.",
    "build_id": "42aea840d7689d36",
    "build_id_check": "same build id reported at the start and at the end of the run",
    "request_timeout_s": 10

@@ -62,14 +62,21 @@ from the rows.
 
 ```bash
 pip install -e ".[dev]"
-python -m csbench.suites.autodojo check     # offline: validates run_config.json and the committed results
-python -m csbench.suites.autodojo score --none <logdir> --next-moca <logdir> --out <dir>/summary.json
+python -m csbench.suites.autodojo check     # offline consistency check of run_config.json and results/summary.json
+python -m csbench.suites.autodojo score --none <logdir> --next-moca <logdir> --build-id <id> --out <dir>/summary.json
 ```
 
-`score` reads AgentDojo-format result rows under each arm's log directory and
-refuses to produce a summary when a suite's attacked or benign row count
-differs from the plan, when a row is incomplete or unreadable, when a case
-appears twice, or when the two arms did not score the same cases. Attack
+For this suite `check` can confirm only that the committed summary matches the
+pinned configuration, the planned population and its own arithmetic: without
+the per-row files it cannot re-derive the counts. `score` reads
+AgentDojo-format result rows under each arm's log directory and refuses to
+produce a summary when a row is incomplete, unreadable, not boolean-scored or
+marked with a provider error; when a case appears twice; when a suite is not
+the full planned user-task by injection-task population; when the two arms did
+not score the same cases; or when the directory given for an arm does not hold
+that arm's rows (the defended arm must carry the element's telemetry, the
+other must not). `--build-id` is the build id the service reported for the
+run. Attack
 success is the benchmark's `security` field, where `true` means the injected
 goal was achieved.
 
@@ -77,7 +84,8 @@ goal was achieved.
 
 [`reproduce.sh`](reproduce.sh) clones the fork at the pinned commit, installs
 the bundled AgentDojo package, optimizes injections against each arm, runs the
-benign and attacked benchmarks, and scores them with `score`. It makes paid
+benign and attacked benchmarks into a new run directory, reads the service's
+build id at the start and the end, and scores the run with `score`. It makes paid
 model calls and refuses to start unless `CSBENCH_CONFIRM_PAID_RUN=1`. It needs
 `OPENAI_API_KEY`, `GEMINI_API_KEY` and `NEXT_MOCA_API_KEY`. The optimizer is
 stochastic, so a fresh run produces different injections and attack success
