@@ -61,7 +61,10 @@ def write_row(root: Path, pipeline, suite, user_task, attack, injection, utility
     name = f"{injection}.json" if injection else "none.json"
     messages = [{"role": "tool", "content": "x"}]
     if "next_moca" in pipeline:
-        messages[0]["next_moca"] = telemetry or {"request_id": "r", "decision": "applied", "reason": "applied", "operating_point": "op-a"}
+        messages[0]["next_moca"] = telemetry or {
+            "request_id": f"agentdojo/{suite}/{user_task}/{injection or 'none'}/op-a/t0",
+            "decision": "applied", "reason": "applied", "operating_point": "op-a", "tool_results": 1, "receipt": {},
+        }
     body = {
         "messages": messages,
         "suite_name": suite,
@@ -265,10 +268,13 @@ def test_a_fresh_summary_validates_against_its_own_run_config(tmp_path):
     fill_arm(tmp_path / "nm", "m-next_moca", set())
     out = tmp_path / "fresh" / "summary.json"
     A.cli(pkg, "t", ["score", "--none", str(tmp_path / "none"), "--next-moca", str(tmp_path / "nm"), "--out", str(out),
-                     "--build-id", "fresh123", "--operating-point", "op-a"])
+                     "--build-id", "fresh123", "--operating-point", "op-a", "--service-url", "http://svc.example",
+                     "--run-started", "2026-11-17T00:00:00Z", "--run-ended", "2026-11-17T01:00:00Z"])
     s, cfg = A.load_json(out), A.load_json(out.with_name("run_config.json"))
     assert all("fresh123" in line or "op-a" not in line for line in cfg["method"])
-    assert any("build fresh123, operating point op-a" in line for line in cfg["method"])
+    assert any("http://svc.example, build fresh123, operating point op-a" in line for line in cfg["method"])
+    assert cfg["arms"]["next_moca"]["service_url"] == "http://svc.example"
+    assert cfg["run"]["started_utc"] == "2026-11-17T00:00:00Z" and cfg["run"]["ended_utc"] == "2026-11-17T01:00:00Z"
     assert s["build_id"] == cfg["arms"]["next_moca"]["build_id"] == "fresh123"
     assert cfg["arms"]["next_moca"]["operating_point"] == "op-a"
     assert s["next_moca_telemetry"]["operating_points"] == ["op-a"]
@@ -289,8 +295,12 @@ def test_score_refuses_telemetry_from_another_operating_point(tmp_path):
 def test_score_refuses_a_run_that_never_reached_the_service(tmp_path):
     pkg = _pkg(tmp_path)
     fill_arm(tmp_path / "none", "m", set())
-    failed = {"request_id": "r", "decision": "passthrough", "reason": "exception:ConnectionError", "operating_point": "op-a"}
-    fill_arm(tmp_path / "nm", "m-next_moca", set(), telemetry=failed)
+    for u in ("user_task_0", "user_task_1"):
+        for i in (None, "injection_task_0", "injection_task_1"):
+            failed = {"request_id": f"agentdojo/banking/{u}/{i or 'none'}/op-a/t0", "decision": "passthrough",
+                      "reason": "exception:ConnectionError", "operating_point": "op-a", "tool_results": 1, "receipt": {}}
+            write_row(tmp_path / "nm", "m-next_moca", "banking", u, "important_instructions" if i else None, i,
+                      True, False if i else None, telemetry=failed)
     with pytest.raises(A.ScoreError, match="never reached"):
         _score(pkg, tmp_path / "none", tmp_path / "nm")
 
@@ -319,10 +329,17 @@ def test_a_different_model_in_the_defended_arm_is_refused(tmp_path):
         _score(pkg, tmp_path / "none", tmp_path / "nm")
 
 
+_GOOD = {"request_id": "agentdojo/banking/user_task_0/none/op-a/t0", "decision": "applied", "reason": "applied",
+         "operating_point": "op-a", "tool_results": 1, "receipt": {}}
+
+
 @pytest.mark.parametrize("record", [
-    {"decision": "applied", "reason": "applied", "operating_point": "op-a"},
-    {"request_id": "r", "decision": "kept", "reason": "applied", "operating_point": "op-a"},
-    {"request_id": "r", "decision": "applied", "reason": "applied"},
+    {k: v for k, v in _GOOD.items() if k != "request_id"},
+    {**_GOOD, "decision": "kept"},
+    {k: v for k, v in _GOOD.items() if k != "operating_point"},
+    {**_GOOD, "reason": ""},
+    {**_GOOD, "tool_results": 0},
+    {k: v for k, v in _GOOD.items() if k != "receipt"},
     {},
 ])
 def test_malformed_telemetry_is_refused(tmp_path, record):
@@ -330,6 +347,14 @@ def test_malformed_telemetry_is_refused(tmp_path, record):
     fill_arm(tmp_path / "none", "m", set())
     fill_arm(tmp_path / "nm", "m-next_moca", set(), telemetry=record or {"x": 1})
     with pytest.raises(A.ScoreError, match="malformed next_moca telemetry"):
+        _score(pkg, tmp_path / "none", tmp_path / "nm")
+
+
+def test_telemetry_from_another_row_or_reused_is_refused(tmp_path):
+    pkg = _pkg(tmp_path)
+    fill_arm(tmp_path / "none", "m", set())
+    fill_arm(tmp_path / "nm", "m-next_moca", set(), telemetry=_GOOD)
+    with pytest.raises(A.ScoreError, match="does not belong to this row|already seen"):
         _score(pkg, tmp_path / "none", tmp_path / "nm")
 
 

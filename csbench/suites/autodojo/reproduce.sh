@@ -43,8 +43,8 @@ git -C "$WORK/fork" checkout --quiet --detach "$COMMIT"
 [ -z "$(git -C "$WORK/fork" status --porcelain)" ] || { echo "fork checkout is dirty" >&2; exit 3; }
 if [ ! -x "$WORK/venv/bin/python" ]; then python3 -m venv "$WORK/venv"; fi
 # The optimizer also imports numpy, which the bundled package does not declare.
-# The range keeps installs on Python 3.11 working (numpy 2.5 needs 3.12).
-"$WORK/venv/bin/pip" install --quiet -e "$WORK/fork/agentdojo" json_repair nltk "numpy>=2.0,<3"
+# Exact pins per Python range: numpy 2.5 needs Python 3.12 or newer.
+"$WORK/venv/bin/pip" install --quiet -e "$WORK/fork/agentdojo" json_repair nltk "numpy==2.2.6; python_version<'3.12'" "numpy==2.5.4; python_version>='3.12'"
 PY="$WORK/venv/bin/python"
 
 # A fresh run root per invocation: the benchmark scripts skip any row that
@@ -65,6 +65,7 @@ print(json.load(urllib.request.urlopen(req, timeout=20)).get("build_id") or "")'
 BUILD_START=$(health_build)
 [ -n "$BUILD_START" ] || { echo "the service reported no build id" >&2; exit 4; }
 echo "service build $BUILD_START"
+RUN_STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 F="$WORK/fork"
 export AGENTDOJO_DEFENSE_PLUGINS=np_autodojo_plugin NP_OPENAI_DIRECT=1
@@ -97,10 +98,12 @@ for arm in next_moca none; do
     --suite "$SUITE" --benchmark-version "$VERSION" --logdir "$RUN/runs/$arm" ${DEF[@]+"${DEF[@]}"} --attack autodojo
 done
 
+RUN_ENDED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 BUILD_END=$(health_build)
 [ "$BUILD_START" = "$BUILD_END" ] || { echo "service build changed during the run ($BUILD_START -> $BUILD_END): not scored" >&2; exit 6; }
 
 cd "$HERE/../../.."
 "$CSBENCH_PY" -m csbench.suites.autodojo score --none "$RUN/runs/none" --next-moca "$RUN/runs/next_moca" \
   --out "$RUN/results/summary.json" --build-id "$BUILD_START" \
-  --operating-point "${NEXT_MOCA_OPERATING_POINT:-}"
+  --operating-point "${NEXT_MOCA_OPERATING_POINT:-}" --service-url "$NEXT_MOCA_URL" \
+  --run-started "$RUN_STARTED" --run-ended "$RUN_ENDED"

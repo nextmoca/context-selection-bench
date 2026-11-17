@@ -183,6 +183,7 @@ def scan_arm_dir(arm_dir: str | os.PathLike[str], arm: str, attack: str, suites:
     incomplete = unreadable = other = telemetry = 0
     pipelines: set[str] = set()
     tel = {"batches": 0, "applied": 0, "passthrough": 0, "transport_failures": 0, "operating_points": set()}
+    tel_ids: set[str] = set()
     for suite in suites:
         pattern = os.path.join(str(arm_dir), "**", suite, "*", "*", "*.json")
         for path in sorted(glob.glob(pattern, recursive=True)):
@@ -220,13 +221,23 @@ def scan_arm_dir(arm_dir: str | os.PathLike[str], arm: str, attack: str, suites:
             records = _telemetry(d)
             telemetry += int(bool(records))
             for t in records:
+                rid = t.get("request_id")
+                n_results = t.get("tool_results")
                 if not (
-                    isinstance(t.get("request_id"), str) and t["request_id"]
+                    isinstance(rid, str) and rid
                     and t.get("decision") in ("applied", "passthrough")
-                    and isinstance(t.get("reason"), str)
+                    and isinstance(t.get("reason"), str) and t["reason"]
                     and isinstance(t.get("operating_point"), str) and t["operating_point"]
+                    and isinstance(n_results, int) and not isinstance(n_results, bool) and n_results > 0
+                    and isinstance(t.get("receipt"), dict)
                 ):
                     raise ScoreError(f"{path}: malformed next_moca telemetry record")
+                # The element builds request ids from suite, user task and injection task.
+                if f"/{suite}/{d.get('user_task_id')}/" not in rid:
+                    raise ScoreError(f"{path}: telemetry request id {rid!r} does not belong to this row")
+                if rid in tel_ids:
+                    raise ScoreError(f"{path}: telemetry request id {rid!r} already seen in another row")
+                tel_ids.add(rid)
                 tel["batches"] += 1
                 tel["applied"] += int(t.get("decision") == "applied")
                 tel["passthrough"] += int(t.get("decision") == "passthrough")
@@ -607,7 +618,14 @@ def pin_value(config: Mapping[str, Any], key: str) -> str:
     return str(value)
 
 
-def fresh_run_config(config: Mapping[str, Any], build_id: str, operating_point: Optional[str]) -> dict[str, Any]:
+def fresh_run_config(
+    config: Mapping[str, Any],
+    build_id: str,
+    operating_point: Optional[str],
+    service_url: Optional[str] = None,
+    started: Optional[str] = None,
+    ended: Optional[str] = None,
+) -> dict[str, Any]:
     """The configuration of a fresh run: the pinned one, with the service
     identity this run actually used. A fresh summary validates against it."""
     import copy
@@ -617,8 +635,12 @@ def fresh_run_config(config: Mapping[str, Any], build_id: str, operating_point: 
     np_arm["build_id"] = build_id
     np_arm["operating_point"] = operating_point
     np_arm.pop("operating_point_note", None)
+    if service_url:
+        np_arm["service_url"] = service_url
     out["run"] = {
         "reproduction_of": config["fork"]["commit"],
+        "started_utc": started,
+        "ended_utc": ended,
         "scored_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     # The pinned method lines describe the published run; a reproduction gets its own.
@@ -626,7 +648,8 @@ def fresh_run_config(config: Mapping[str, Any], build_id: str, operating_point: 
         f"Reproduction of the pinned {config['benchmark']['name']} configuration from fork commit {config['fork']['commit']}.",
         f"Model: {config['model']['id']}; attack: {config['benchmark']['attack']}; "
         f"suites: {', '.join(config['benchmark']['suites'])}.",
-        f"Service: Next Moca hosted service, build {build_id}, operating point {operating_point}.",
+        f"Service: {np_arm.get('service_url', 'the configured service')}, build {build_id}, operating point {operating_point}.",
+        f"Run: started {started or 'not recorded'}, ended {ended or 'not recorded'} (UTC).",
     ]
     return out
 
@@ -661,6 +684,9 @@ def cli(package_dir: Path, prog: str, argv: Optional[list[str]] = None) -> int:
         required=True,
         help="the operating point the run requested; every telemetry record must carry it",
     )
+    sp.add_argument("--service-url", help="the service URL the run used (default: the configured one)")
+    sp.add_argument("--run-started", help="UTC timestamp at which the run started")
+    sp.add_argument("--run-ended", help="UTC timestamp at which the run ended")
     pp = sub.add_parser("pin", help="print one run_config.json value by dotted path (for reproduce.sh)")
     pp.add_argument("key", help="dotted path, for example fork.commit")
     args = p.parse_args(argv)
@@ -700,7 +726,10 @@ def cli(package_dir: Path, prog: str, argv: Optional[list[str]] = None) -> int:
     if observed != [args.operating_point]:
         raise ScoreError(f"telemetry operating points {observed} differ from the requested {args.operating_point!r}")
     rows = scans[ARM_NONE].rows + scans[ARM_NEXT_MOCA].rows
-    run_config = fresh_run_config(config, args.build_id, args.operating_point)
+    run_config = fresh_run_config(
+        config, args.build_id, args.operating_point,
+        service_url=args.service_url, started=args.run_started, ended=args.run_ended,
+    )
     summary = summary_from_rows(run_config, rows)
     summary["next_moca_telemetry"] = scans[ARM_NEXT_MOCA].telemetry
     text = json.dumps(summary, indent=1, sort_keys=True)

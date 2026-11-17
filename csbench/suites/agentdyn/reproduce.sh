@@ -62,6 +62,7 @@ print(json.load(urllib.request.urlopen(req, timeout=20)).get("build_id") or "")'
 BUILD_START=$(health_build)
 [ -n "$BUILD_START" ] || { echo "the service reported no build id" >&2; exit 4; }
 echo "service build $BUILD_START"
+RUN_STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 cd "$WORK/fork"
 for arm in none next_moca; do
@@ -76,10 +77,12 @@ for arm in none next_moca; do
   done
 done
 
+RUN_ENDED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 BUILD_END=$(health_build)
 [ "$BUILD_START" = "$BUILD_END" ] || { echo "service build changed during the run ($BUILD_START -> $BUILD_END): not scored" >&2; exit 6; }
 
 cd "$HERE/../../.."
 "$CSBENCH_PY" -m csbench.suites.agentdyn score --none "$RUN/runs/none" --next-moca "$RUN/runs/next_moca" \
   --out "$RUN/results/summary.json" --build-id "$BUILD_START" \
-  --operating-point "${NEXT_MOCA_OPERATING_POINT:-}"
+  --operating-point "${NEXT_MOCA_OPERATING_POINT:-}" --service-url "$NEXT_MOCA_URL" \
+  --run-started "$RUN_STARTED" --run-ended "$RUN_ENDED"
