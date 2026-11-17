@@ -69,8 +69,12 @@ marked with a provider error; when a case appears twice; when a suite is not
 the full planned user-task by injection-task population; when the two arms did
 not score the same cases; or when the directory given for an arm does not hold
 that arm's rows (the defended arm must carry the element's telemetry, the
-other must not). `--build-id` is the build id the service reported for the
-run. Attack
+other must not; a defended arm that never reached the service is refused).
+Task ids must be exactly the planned ids listed in `run_config.json`.
+`--build-id` is the build id the service reported for the run, and
+`--operating-point`, when given, must match every telemetry record. With
+`--out`, `score` also writes the run's own `run_config.json` (the pinned one
+with the service identity the run used) beside the summary. Attack
 success is the benchmark's `security` field, where `true` means the injected
 goal was achieved.
 

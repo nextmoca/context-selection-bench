@@ -55,13 +55,13 @@ def summary(name):
 
 # --------------------------------------------------------------- synthetic rows
 
-def write_row(root: Path, pipeline, suite, user_task, attack, injection, utility, security=None, **extra):
+def write_row(root: Path, pipeline, suite, user_task, attack, injection, utility, security=None, telemetry=None, **extra):
     d = root / pipeline / suite / user_task / (attack or "none")
     d.mkdir(parents=True, exist_ok=True)
     name = f"{injection}.json" if injection else "none.json"
     messages = [{"role": "tool", "content": "x"}]
     if "next_moca" in pipeline:
-        messages[0]["next_moca"] = {"decision": "applied"}
+        messages[0]["next_moca"] = telemetry or {"request_id": "r", "decision": "applied", "reason": "applied", "operating_point": "op-a"}
     body = {
         "messages": messages,
         "suite_name": suite,
@@ -84,7 +84,16 @@ def tiny_config():
             "name": "Tiny",
             "upstream_commit": "0" * 40,
             "attack": "important_instructions",
-            "suites": {"banking": {"user_tasks": 2, "injection_tasks": 2, "attacked": 4, "benign": 2}},
+            "suites": {
+                "banking": {
+                    "user_tasks": 2,
+                    "injection_tasks": 2,
+                    "attacked": 4,
+                    "benign": 2,
+                    "user_task_ids": ["user_task_0", "user_task_1"],
+                    "injection_task_ids": ["injection_task_0", "injection_task_1"],
+                }
+            },
         },
         "fork": {"repo": "https://github.com/nextmoca/tiny", "commit": "1" * 40},
         "model": {"id": "m"},
@@ -93,11 +102,11 @@ def tiny_config():
     }
 
 
-def fill_arm(root: Path, pipeline: str, attack_success: set, utility_fail: set = frozenset(), injections=("injection_task_0", "injection_task_1")):
+def fill_arm(root: Path, pipeline: str, attack_success: set, utility_fail: set = frozenset(), injections=("injection_task_0", "injection_task_1"), telemetry=None):
     for u in ("user_task_0", "user_task_1"):
-        write_row(root, pipeline, "banking", u, None, None, u not in utility_fail)
+        write_row(root, pipeline, "banking", u, None, None, u not in utility_fail, telemetry=telemetry)
         for i in injections:
-            write_row(root, pipeline, "banking", u, "important_instructions", i, (u, i) not in utility_fail, (u, i) in attack_success)
+            write_row(root, pipeline, "banking", u, "important_instructions", i, (u, i) not in utility_fail, (u, i) in attack_success, telemetry=telemetry)
     # AgentDojo's injection-as-user rows: counted, never scored
     write_row(root, pipeline, "banking", "injection_task_0", None, None, True)
 
@@ -163,15 +172,37 @@ def test_a_case_present_twice_is_refused(tmp_path):
 
 
 def test_unpaired_arms_are_refused(tmp_path):
-    # each arm is a complete 2 x 2 population, but not the same one
     fill_arm(tmp_path / "none", "m", set())
-    fill_arm(tmp_path / "nm", "m-next_moca", set(), injections=("injection_task_0", "injection_task_2"))
-    rows = (
-        A.scan_arm_dir(tmp_path / "none", "none", "important_instructions", ["banking"]).rows
-        + A.scan_arm_dir(tmp_path / "nm", "next_moca", "important_instructions", ["banking"]).rows
-    )
+    fill_arm(tmp_path / "nm", "m-next_moca", set())
+    os.remove(tmp_path / "nm" / "m-next_moca" / "banking" / "user_task_0" / "important_instructions" / "injection_task_0.json")
+    a = A.scan_arm_dir(tmp_path / "none", "none", "important_instructions", ["banking"]).rows
+    b = A.scan_arm_dir(tmp_path / "nm", "next_moca", "important_instructions", ["banking"]).rows
     with pytest.raises(A.ScoreError, match="not paired"):
-        A.summary_from_rows(tiny_config(), rows)
+        A.check_pairing(a, b)
+    with pytest.raises(A.ScoreError, match="exactly the planned"):
+        A.summary_from_rows(tiny_config(), a + b)
+
+
+def test_a_relabelled_injection_column_is_refused():
+    # renaming one injection task everywhere keeps every count and the cross
+    # product intact; only the exact planned ids catch it
+    rows = A.read_rows_jsonl(SUITES["agentdojo"] / "results" / "rows.jsonl")
+    rows = [
+        A.Row(r.arm, r.suite, r.user_task_id, "injection_task_99", r.attack, r.utility, r.security, r.error)
+        if r.suite == "slack" and r.injection_task_id == "injection_task_1"
+        else r
+        for r in rows
+    ]
+    with pytest.raises(A.ScoreError, match="slack"):
+        A.summary_from_rows(config("agentdojo"), rows)
+
+
+def test_committed_rows_with_an_error_are_refused():
+    rows = A.read_rows_jsonl(SUITES["agentdojo"] / "results" / "rows.jsonl")
+    r = rows[0]
+    rows[0] = A.Row(r.arm, r.suite, r.user_task_id, r.injection_task_id, r.attack, r.utility, r.security, True)
+    with pytest.raises(A.ScoreError, match="provider error"):
+        A.summary_from_rows(config("agentdojo"), rows)
 
 
 def test_score_command_writes_a_summary_and_rows_that_check(tmp_path, monkeypatch):
@@ -228,13 +259,54 @@ def test_score_refuses_rows_with_a_provider_error(tmp_path):
         _score(pkg, tmp_path / "none", tmp_path / "nm")
 
 
-def test_score_stamps_the_reported_build_id_not_the_configured_one(tmp_path):
+def test_a_fresh_summary_validates_against_its_own_run_config(tmp_path):
     pkg = _pkg(tmp_path)
     fill_arm(tmp_path / "none", "m", set())
     fill_arm(tmp_path / "nm", "m-next_moca", set())
     out = tmp_path / "fresh" / "summary.json"
-    A.cli(pkg, "t", ["score", "--none", str(tmp_path / "none"), "--next-moca", str(tmp_path / "nm"), "--out", str(out), "--build-id", "fresh123"])
-    assert A.load_json(out)["build_id"] == "fresh123"
+    A.cli(pkg, "t", ["score", "--none", str(tmp_path / "none"), "--next-moca", str(tmp_path / "nm"), "--out", str(out),
+                     "--build-id", "fresh123", "--operating-point", "op-a"])
+    s, cfg = A.load_json(out), A.load_json(out.with_name("run_config.json"))
+    assert s["build_id"] == cfg["arms"]["next_moca"]["build_id"] == "fresh123"
+    assert cfg["arms"]["next_moca"]["operating_point"] == "op-a"
+    assert s["next_moca_telemetry"]["operating_points"] == ["op-a"]
+    A.validate_summary(s, cfg)
+    with pytest.raises(A.ScoreError, match="build_id"):
+        A.validate_summary(s, tiny_config())
+
+
+def test_score_refuses_telemetry_from_another_operating_point(tmp_path):
+    pkg = _pkg(tmp_path)
+    fill_arm(tmp_path / "none", "m", set())
+    fill_arm(tmp_path / "nm", "m-next_moca", set())
+    with pytest.raises(A.ScoreError, match="operating points"):
+        A.cli(pkg, "t", ["score", "--none", str(tmp_path / "none"), "--next-moca", str(tmp_path / "nm"),
+                         "--build-id", "b", "--operating-point", "op-b"])
+
+
+def test_score_refuses_a_run_that_never_reached_the_service(tmp_path):
+    pkg = _pkg(tmp_path)
+    fill_arm(tmp_path / "none", "m", set())
+    failed = {"request_id": "r", "decision": "passthrough", "reason": "exception:ConnectionError", "operating_point": "op-a"}
+    fill_arm(tmp_path / "nm", "m-next_moca", set(), telemetry=failed)
+    with pytest.raises(A.ScoreError, match="never reached"):
+        _score(pkg, tmp_path / "none", tmp_path / "nm")
+
+
+def test_score_refuses_an_empty_build_id(tmp_path):
+    pkg = _pkg(tmp_path)
+    fill_arm(tmp_path / "none", "m", set())
+    fill_arm(tmp_path / "nm", "m-next_moca", set())
+    with pytest.raises(A.ScoreError, match="build-id"):
+        _score(pkg, tmp_path / "none", tmp_path / "nm", build_id=" ")
+
+
+def test_a_baseline_pipeline_named_for_the_defense_is_refused(tmp_path):
+    pkg = _pkg(tmp_path)
+    fill_arm(tmp_path / "none", "m/next_moca_off", set())
+    fill_arm(tmp_path / "nm", "m-next_moca", set())
+    with pytest.raises(A.ScoreError, match="belong to the next_moca arm"):
+        _score(pkg, tmp_path / "none", tmp_path / "nm")
 
 
 def test_duplicated_jsonl_rows_are_refused():

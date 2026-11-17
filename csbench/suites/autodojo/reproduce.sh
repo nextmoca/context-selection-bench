@@ -42,8 +42,9 @@ git -C "$WORK/fork" checkout --quiet --detach "$COMMIT"
 [ "$(git -C "$WORK/fork" rev-parse HEAD)" = "$COMMIT" ] || { echo "fork is not at the pinned commit" >&2; exit 3; }
 [ -z "$(git -C "$WORK/fork" status --porcelain)" ] || { echo "fork checkout is dirty" >&2; exit 3; }
 if [ ! -x "$WORK/venv/bin/python" ]; then python3 -m venv "$WORK/venv"; fi
-# The optimizer also imports numpy, which the bundled package does not declare.
-"$WORK/venv/bin/pip" install --quiet -e "$WORK/fork/agentdojo" json_repair nltk numpy
+# The optimizer also imports numpy, which the bundled package does not declare;
+# 2.5.4 is the version this optimizer has been run with.
+"$WORK/venv/bin/pip" install --quiet -e "$WORK/fork/agentdojo" json_repair nltk numpy==2.5.4
 PY="$WORK/venv/bin/python"
 
 # A fresh run root per invocation: the benchmark scripts skip any row that
@@ -101,4 +102,5 @@ BUILD_END=$(health_build)
 
 cd "$HERE/../../.."
 "$CSBENCH_PY" -m csbench.suites.autodojo score --none "$RUN/runs/none" --next-moca "$RUN/runs/next_moca" \
-  --out "$RUN/results/summary.json" --build-id "$BUILD_START"
+  --out "$RUN/results/summary.json" --build-id "$BUILD_START" \
+  ${NEXT_MOCA_OPERATING_POINT:+--operating-point "$NEXT_MOCA_OPERATING_POINT"}
