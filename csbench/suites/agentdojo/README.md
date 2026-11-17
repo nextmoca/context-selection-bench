@@ -20,6 +20,55 @@ The reference configuration is one suite (`workspace`), one attack family
 tasks = 560 scored rows per arm, five planned repeats. It is not the full
 AgentDojo matrix and is not a universal prompt-injection result.
 
+## Published GPT-4o result (`published/`)
+
+The published GPT-4o AgentDojo result was not produced by the harness below.
+It was produced by AgentDojo's own benchmark script, run from the
+[`nextmoca/agentdojo`](https://github.com/nextmoca/agentdojo) fork with that
+fork's `next_moca` defense element, which plays the same role as `bridge.py`
+here: after the tool executor, it sends the trailing tool-result batch to the
+hosted service and passes on what the service returns, failing open. The
+[`published/`](published/) directory pins that fork and carries the result.
+
+| | |
+|---|---|
+| upstream | `ethz-spylab/agentdojo` at `089ed468cf3ed0322acc66b0211f26d9d90dbf60` (MIT) |
+| fork | `nextmoca/agentdojo`, branch `next-moca` |
+| pinned commit | `f9010f8f4eb85a76ef6b17b0944bbc0b59140be3` |
+| run commit | `94557ff578f637551049d2b4c84121db81e2e704`, recorded in the run log; its `src/` tree (`6601506f`) is identical to the pinned commit's, which differs only in `README.md` and a gate-reason string in two test fixtures |
+| defense element | `src/agentdojo/agent_pipeline/next_moca.py`, sha256 prefix `b9698486c20eb54d` |
+
+Run configuration ([`published/run_config.json`](published/run_config.json)):
+model `gpt-4o-2024-08-06` (OpenAI) in both arms; AgentDojo `v1.2.2`, suites
+workspace, travel, banking and slack; attack `important_instructions`; 949
+attacked tasks and 97 benign tasks per arm; arms `none` and `next_moca`; Next
+Moca hosted service, October 2026, build `6c0eaba7bc4aa35c` (the same build id
+at the start and the end of the run), operating point `np-2026-10-r8`; both
+arms ran on 2026-10-26 (UTC).
+
+Results ([`published/results/summary.json`](published/results/summary.json),
+one record per scored task in
+[`published/results/rows.jsonl`](published/results/rows.jsonl)). Counts are
+tasks.
+
+| suite | attacked tasks | attack success, none → next_moca | tasks completed under attack, none → next_moca | benign tasks completed, none → next_moca |
+|---|---|---|---|---|
+| banking | 144 | 81 → 0 | 115 (79.9%) → 117 (81.3%) | 14/16 → 14/16 |
+| slack | 105 | 80 → 0 | 72 (68.6%) → 74 (70.5%) | 20/21 → 19/21 |
+| travel | 140 | 31 → 0 | 84 (60.0%) → 104 (74.3%) | 15/20 → 13/20 |
+| workspace | 560 | 76 → 0 | 262 (46.8%) → 382 (68.2%) | 27/40 → 25/40 |
+| pooled | 949 | 268 → 0 | 533 (56.2%) → 677 (71.3%) | 76/97 → 71/97 |
+
+```bash
+python -m csbench.suites.agentdojo.published check   # offline: rows.jsonl must reproduce summary.json
+CSBENCH_CONFIRM_PAID_RUN=1 bash csbench/suites/agentdojo/published/reproduce.sh   # paid model calls
+```
+
+`reproduce.sh` clones the fork at the pinned commit, runs both arms with
+AgentDojo's benchmark script into a new run directory, reads the service's
+build id at the start and the end, and scores the run with the same code that
+checks the committed results. It needs `OPENAI_API_KEY` and `NEXT_MOCA_API_KEY`.
+
 ## Arms
 
 | arm | pipeline |
@@ -168,7 +217,8 @@ the `agentdojo` extra is installed, and is skipped otherwise.
 
 ## Not yet done
 
-- A live run. No numbers are shipped with this suite.
+- A live run of this harness. The published GPT-4o numbers come from the
+  pinned fork (see `published/` above), not from this harness.
 - Provider-reported input-token usage and a model-family tokenizer estimate
   alongside the heuristic estimator.
 - Replacing the preflight patch with an upstream-supported switch.

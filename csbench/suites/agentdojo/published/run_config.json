@@ -1,0 +1,235 @@
+{
+ "schema": "csbench.agent_security.run_config/1",
+ "suite": "agentdojo",
+ "benchmark": {
+  "name": "AgentDojo",
+  "upstream_repo": "https://github.com/ethz-spylab/agentdojo",
+  "upstream_commit": "089ed468cf3ed0322acc66b0211f26d9d90dbf60",
+  "license": "MIT",
+  "benchmark_version": "v1.2.2",
+  "attack": "important_instructions",
+  "suites": {
+   "workspace": {
+    "user_tasks": 40,
+    "injection_tasks": 14,
+    "attacked": 560,
+    "benign": 40,
+    "user_task_ids": [
+     "user_task_0",
+     "user_task_1",
+     "user_task_2",
+     "user_task_3",
+     "user_task_4",
+     "user_task_5",
+     "user_task_6",
+     "user_task_7",
+     "user_task_8",
+     "user_task_9",
+     "user_task_10",
+     "user_task_11",
+     "user_task_12",
+     "user_task_13",
+     "user_task_14",
+     "user_task_15",
+     "user_task_16",
+     "user_task_17",
+     "user_task_18",
+     "user_task_19",
+     "user_task_20",
+     "user_task_21",
+     "user_task_22",
+     "user_task_23",
+     "user_task_24",
+     "user_task_25",
+     "user_task_26",
+     "user_task_27",
+     "user_task_28",
+     "user_task_29",
+     "user_task_30",
+     "user_task_31",
+     "user_task_32",
+     "user_task_33",
+     "user_task_34",
+     "user_task_35",
+     "user_task_36",
+     "user_task_37",
+     "user_task_38",
+     "user_task_39"
+    ],
+    "injection_task_ids": [
+     "injection_task_0",
+     "injection_task_1",
+     "injection_task_2",
+     "injection_task_3",
+     "injection_task_4",
+     "injection_task_5",
+     "injection_task_6",
+     "injection_task_7",
+     "injection_task_8",
+     "injection_task_9",
+     "injection_task_10",
+     "injection_task_11",
+     "injection_task_12",
+     "injection_task_13"
+    ]
+   },
+   "travel": {
+    "user_tasks": 20,
+    "injection_tasks": 7,
+    "attacked": 140,
+    "benign": 20,
+    "user_task_ids": [
+     "user_task_0",
+     "user_task_1",
+     "user_task_2",
+     "user_task_3",
+     "user_task_4",
+     "user_task_5",
+     "user_task_6",
+     "user_task_7",
+     "user_task_8",
+     "user_task_9",
+     "user_task_10",
+     "user_task_11",
+     "user_task_12",
+     "user_task_13",
+     "user_task_14",
+     "user_task_15",
+     "user_task_16",
+     "user_task_17",
+     "user_task_18",
+     "user_task_19"
+    ],
+    "injection_task_ids": [
+     "injection_task_0",
+     "injection_task_1",
+     "injection_task_2",
+     "injection_task_3",
+     "injection_task_4",
+     "injection_task_5",
+     "injection_task_6"
+    ]
+   },
+   "banking": {
+    "user_tasks": 16,
+    "injection_tasks": 9,
+    "attacked": 144,
+    "benign": 16,
+    "user_task_ids": [
+     "user_task_0",
+     "user_task_1",
+     "user_task_2",
+     "user_task_3",
+     "user_task_4",
+     "user_task_5",
+     "user_task_6",
+     "user_task_7",
+     "user_task_8",
+     "user_task_9",
+     "user_task_10",
+     "user_task_11",
+     "user_task_12",
+     "user_task_13",
+     "user_task_14",
+     "user_task_15"
+    ],
+    "injection_task_ids": [
+     "injection_task_0",
+     "injection_task_1",
+     "injection_task_2",
+     "injection_task_3",
+     "injection_task_4",
+     "injection_task_5",
+     "injection_task_6",
+     "injection_task_7",
+     "injection_task_8"
+    ]
+   },
+   "slack": {
+    "user_tasks": 21,
+    "injection_tasks": 5,
+    "attacked": 105,
+    "benign": 21,
+    "user_task_ids": [
+     "user_task_0",
+     "user_task_1",
+     "user_task_2",
+     "user_task_3",
+     "user_task_4",
+     "user_task_5",
+     "user_task_6",
+     "user_task_7",
+     "user_task_8",
+     "user_task_9",
+     "user_task_10",
+     "user_task_11",
+     "user_task_12",
+     "user_task_13",
+     "user_task_14",
+     "user_task_15",
+     "user_task_16",
+     "user_task_17",
+     "user_task_18",
+     "user_task_19",
+     "user_task_20"
+    ],
+    "injection_task_ids": [
+     "injection_task_1",
+     "injection_task_2",
+     "injection_task_3",
+     "injection_task_4",
+     "injection_task_5"
+    ]
+   }
+  }
+ },
+ "fork": {
+  "repo": "https://github.com/nextmoca/agentdojo",
+  "branch": "next-moca",
+  "commit": "f9010f8f4eb85a76ef6b17b0944bbc0b59140be3",
+  "run_commit": "94557ff578f637551049d2b4c84121db81e2e704",
+  "src_tree": "6601506f480099752a30aed29ba689f8e6cf563d",
+  "equivalence": "The run log records commit 94557ff5 (exp/r8-client b2ca1fe4 plus the gpt-4o-2024-08-06 model entry). The pinned commit's src/ tree (6601506f) is identical to that commit's src/ tree; the pinned commit differs from it only in README.md and in a gate-reason string inside two test fixtures.",
+  "element": {
+   "path": "src/agentdojo/agent_pipeline/next_moca.py",
+   "sha256_16": "b9698486c20eb54d"
+  }
+ },
+ "model": {
+  "id": "gpt-4o-2024-08-06",
+  "provider": "openai",
+  "benchmark_flag": "GPT_4O_2024_08_06"
+ },
+ "arms": {
+  "none": {
+   "defense_flag": null,
+   "pipeline_name": "gpt-4o-2024-08-06"
+  },
+  "next_moca": {
+   "defense_flag": "next_moca",
+   "service": "Next Moca hosted service",
+   "service_url": "https://api.nextmoca.com",
+   "operating_point": "np-2026-10-r8",
+   "build_id": "6c0eaba7bc4aa35c",
+   "build_id_check": "same build id reported at the start and at the end of the run",
+   "request_timeout_s": 10,
+   "pipeline_name": "gpt-4o-2024-08-06-next_moca"
+  }
+ },
+ "run": {
+  "dates_utc": [
+   "2026-10-26"
+  ],
+  "order": "arm none, then arm next_moca; benign tasks for all suites, then attacked tasks for all suites",
+  "error_rows": "rows with a provider error are moved aside and re-run (up to three passes); none remained"
+ },
+ "method": [
+  "Model: gpt-4o-2024-08-06 (OpenAI), the same model in both arms.",
+  "Benchmark: AgentDojo v1.2.2, suites workspace, travel, banking and slack; attack important_instructions.",
+  "Population: 949 attacked tasks and 97 benign tasks per arm, every (user task, injection task) pair once.",
+  "Arms: none (AgentDojo's pipeline) and next_moca (the same pipeline with the next_moca element after the tool executor).",
+  "Service: Next Moca hosted service, October 2026, build 6c0eaba7bc4aa35c, operating point np-2026-10-r8.",
+  "Dates: both arms ran on 2026-10-26 (UTC).",
+  "Scoring: AgentDojo's own utility and security checks; attack success is security = true."
+ ]
+}

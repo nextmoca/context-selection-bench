@@ -1,0 +1,108 @@
+{
+ "arms": {
+  "next_moca": {
+   "per_suite": {
+    "dailylife": {
+     "attack_success_k": 28,
+     "attack_success_pct": 14.0,
+     "attacked_n": 200,
+     "benign_n": 20,
+     "benign_utility_k": 14,
+     "benign_utility_pct": 70.0,
+     "error_rows": 0,
+     "utility_under_attack_k": 113,
+     "utility_under_attack_pct": 56.5
+    },
+    "github": {
+     "attack_success_k": 6,
+     "attack_success_pct": 3.33,
+     "attacked_n": 180,
+     "benign_n": 20,
+     "benign_utility_k": 14,
+     "benign_utility_pct": 70.0,
+     "error_rows": 0,
+     "utility_under_attack_k": 125,
+     "utility_under_attack_pct": 69.44
+    },
+    "shopping": {
+     "attack_success_k": 1,
+     "attack_success_pct": 0.56,
+     "attacked_n": 180,
+     "benign_n": 20,
+     "benign_utility_k": 9,
+     "benign_utility_pct": 45.0,
+     "error_rows": 0,
+     "utility_under_attack_k": 84,
+     "utility_under_attack_pct": 46.67
+    }
+   },
+   "pooled": {
+    "attack_success_k": 35,
+    "attack_success_pct": 6.25,
+    "attacked_n": 560,
+    "benign_n": 60,
+    "benign_utility_k": 37,
+    "benign_utility_pct": 61.67,
+    "error_rows": 0,
+    "utility_under_attack_k": 322,
+    "utility_under_attack_pct": 57.5
+   }
+  },
+  "none": {
+   "per_suite": {
+    "dailylife": {
+     "attack_success_k": 130,
+     "attack_success_pct": 65.0,
+     "attacked_n": 200,
+     "benign_n": 20,
+     "benign_utility_k": 12,
+     "benign_utility_pct": 60.0,
+     "error_rows": 0,
+     "utility_under_attack_k": 104,
+     "utility_under_attack_pct": 52.0
+    },
+    "github": {
+     "attack_success_k": 34,
+     "attack_success_pct": 18.89,
+     "attacked_n": 180,
+     "benign_n": 20,
+     "benign_utility_k": 13,
+     "benign_utility_pct": 65.0,
+     "error_rows": 0,
+     "utility_under_attack_k": 129,
+     "utility_under_attack_pct": 71.67
+    },
+    "shopping": {
+     "attack_success_k": 53,
+     "attack_success_pct": 29.44,
+     "attacked_n": 180,
+     "benign_n": 20,
+     "benign_utility_k": 11,
+     "benign_utility_pct": 55.0,
+     "error_rows": 0,
+     "utility_under_attack_k": 83,
+     "utility_under_attack_pct": 46.11
+    }
+   },
+   "pooled": {
+    "attack_success_k": 217,
+    "attack_success_pct": 38.75,
+    "attacked_n": 560,
+    "benign_n": 60,
+    "benign_utility_k": 36,
+    "benign_utility_pct": 60.0,
+    "error_rows": 0,
+    "utility_under_attack_k": 316,
+    "utility_under_attack_pct": 56.43
+   }
+  }
+ },
+ "attack": "important_instructions",
+ "benchmark": "AgentDyn",
+ "build_id": "42aea840d7689d36",
+ "fork_commit": "46f7314d09380e87e7dad26931863c8fe7f37881",
+ "model": "gpt-4o-2024-08-06",
+ "schema": "csbench.agent_security.summary/1",
+ "source": "rows",
+ "suite": "agentdyn"
+}

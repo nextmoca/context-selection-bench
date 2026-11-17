@@ -17,6 +17,19 @@ All notable changes to this project are documented here. This project adheres to
   sharded runner with whole-arm validity gates and archived retries, and a
   summarizer that refuses incomplete or mismatched runs. Offline regression
   tests with fakes. No results are included; the `agentdojo` extra is optional.
+- Agent security suites: `csbench.suites.agentdyn`, `csbench.suites.autodojo`
+  and `csbench.suites.agentdojo.published`. Each pins a Next Moca fork of the
+  upstream benchmark (`nextmoca/agentdyn`, `nextmoca/autodojo`,
+  `nextmoca/agentdojo`, MIT upstreams) at an exact commit and carries the run
+  configuration (`run_config.json`), a reproduction script that refuses to
+  make paid calls without an explicit opt-in, and the results of the published
+  GPT-4o runs (`results/summary.json` and one record per scored task in
+  `results/rows.jsonl`). A shared scorer
+  (`csbench.suites.agent_security`) counts AgentDojo-format rows, refuses
+  incomplete, duplicated or unpaired runs, and backs a `check` command that
+  re-validates the committed results offline. The README gains an "Agent
+  security suites" section with one summary table. The harness added above is
+  unchanged.
 
 ## 1.2.0 - 2026-09-03
 
