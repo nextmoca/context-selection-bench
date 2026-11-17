@@ -44,6 +44,13 @@ dev = ["pytest>=8.0"]
 [tool.setuptools.packages.find]
 include = ["csbench*"]
 
+[tool.setuptools.package-data]
+# The agent-security suites ship their pinned run configuration, reproduction
+# script and committed results with the package.
+"csbench.suites.agentdyn" = ["README.md", "run_config.json", "reproduce.sh", "results/*"]
+"csbench.suites.autodojo" = ["README.md", "run_config.json", "reproduce.sh", "results/*"]
+"csbench.suites.agentdojo.published" = ["run_config.json", "reproduce.sh", "results/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

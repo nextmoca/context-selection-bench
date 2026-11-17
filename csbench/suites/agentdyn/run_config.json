@@ -1,0 +1,79 @@
+{
+ "schema": "csbench.agent_security.run_config/1",
+ "suite": "agentdyn",
+ "benchmark": {
+  "name": "AgentDyn",
+  "upstream_repo": "https://github.com/SaFo-Lab/AgentDyn",
+  "upstream_commit": "5353cf7615b135cace8d07c8f12dac53a16b6db3",
+  "license": "MIT",
+  "benchmark_version": "v1.2.2",
+  "attack": "important_instructions",
+  "suites": {
+   "shopping": {
+    "user_tasks": 20,
+    "injection_tasks": 9,
+    "attacked": 180,
+    "benign": 20
+   },
+   "github": {
+    "user_tasks": 20,
+    "injection_tasks": 9,
+    "attacked": 180,
+    "benign": 20
+   },
+   "dailylife": {
+    "user_tasks": 20,
+    "injection_tasks": 10,
+    "attacked": 200,
+    "benign": 20
+   }
+  }
+ },
+ "fork": {
+  "repo": "https://github.com/nextmoca/agentdyn",
+  "branch": "next-moca",
+  "commit": "46f7314d09380e87e7dad26931863c8fe7f37881",
+  "run_commit": "25937a2c83d6ba06d73cd9bd8e93417c733daef4",
+  "equivalence": "The run logs record commit 25937a2c for every run. It is the parent of the pinned commit, which adds only the README section.",
+  "element": {
+   "path": "src/agentdojo/agent_pipeline/next_moca.py",
+   "sha256_16": "b9698486c20eb54d"
+  }
+ },
+ "model": {
+  "id": "gpt-4o-2024-08-06",
+  "provider": "openai",
+  "benchmark_flag": "GPT_4O_2024_08_06"
+ },
+ "arms": {
+  "none": {
+   "defense_flag": null
+  },
+  "next_moca": {
+   "defense_flag": "next_moca",
+   "service": "Next Moca hosted service",
+   "service_url": "https://api.nextmoca.com",
+   "operating_point": null,
+   "operating_point_note": "An unlisted operating point of the hosted service; the label is not published. Reproduction uses the account's default operating point unless NEXT_MOCA_OPERATING_POINT is set.",
+   "build_id": "42aea840d7689d36",
+   "build_id_check": "same build id reported at the start and at the end of the run",
+   "request_timeout_s": 10
+  }
+ },
+ "run": {
+  "dates_utc": [
+   "2026-11-10"
+  ],
+  "order": "per suite (shopping, github, dailylife): benign tasks, then attacked tasks; the none arm and the next_moca arm ran as separate runs on the same day from the same fork commit",
+  "error_rows": "rows with a provider error are moved aside and re-run once; none remained"
+ },
+ "method": [
+  "Model: gpt-4o-2024-08-06 (OpenAI), the same model in both arms.",
+  "Benchmark: AgentDyn (upstream commit 5353cf76) suites shopping, github and dailylife, benchmark version v1.2.2; attack important_instructions.",
+  "Population: 560 attacked tasks and 60 benign tasks per arm, every (user task, injection task) pair once.",
+  "Arms: none (AgentDyn's pipeline) and next_moca (the same pipeline with the next_moca element after the tool executor).",
+  "Service: Next Moca hosted service, November 2026, build 42aea840d7689d36.",
+  "Dates: both arms ran on 2026-11-10 (UTC), as separate runs from the same fork commit.",
+  "Scoring: AgentDyn's own utility and security checks; attack success is security = true."
+ ]
+}

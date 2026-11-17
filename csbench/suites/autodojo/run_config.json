@@ -1,0 +1,84 @@
+{
+ "schema": "csbench.agent_security.run_config/1",
+ "suite": "autodojo",
+ "benchmark": {
+  "name": "AutoDojo",
+  "upstream_repo": "https://github.com/xhOwenMa/AutoDojo",
+  "upstream_commit": "aa458794b7eb7f082e94daeac4c0f55bfc0c90cc",
+  "license": "MIT",
+  "benchmark_version": "v1.2.2",
+  "attack": "autodojo",
+  "suites": {
+   "banking": {
+    "user_tasks": 16,
+    "injection_tasks": 9,
+    "attacked": 144,
+    "benign": 16
+   }
+  },
+  "optimizer": {
+   "script": "agentdojo/variant_generation/optimize_variants.py",
+   "model": "gemini-2.5-pro",
+   "provider": "google",
+   "iterations": 4,
+   "n_variants": 5,
+   "benchmarked_variant": 0,
+   "analyzer_prompt": "analyzer_banking",
+   "injection_prompt": "injection_task_iterative_banking",
+   "parallel_eval": true,
+   "eval_concurrency": 8,
+   "per_arm": "injections are optimized separately against each arm's own pipeline (none: no defense; next_moca: with the next_moca defense), then each arm is benchmarked with its own optimized cache",
+   "deviations_from_paper": "the paper uses 8 iterations and a different optimizer model; this run used 4 iterations and gemini-2.5-pro"
+  }
+ },
+ "fork": {
+  "repo": "https://github.com/nextmoca/autodojo",
+  "branch": "next-moca",
+  "commit": "8bf235016dbd4dfd92e0a6476d87791e0919bb60",
+  "run_commit": null,
+  "equivalence": "The run used a clean checkout of upstream aa458794 with the plugin directory on PYTHONPATH (run log: element sha256 b9698486c20eb54d, plugin sha256 c84ebd37608d1814). The pinned commit adds those two files byte for byte under next_moca/ and changes no upstream file except README.md.",
+  "element": {
+   "path": "next_moca/np_next_moca.py",
+   "sha256_16": "b9698486c20eb54d"
+  },
+  "plugin": {
+   "path": "next_moca/np_autodojo_plugin.py",
+   "sha256_16": "c84ebd37608d1814"
+  }
+ },
+ "model": {
+  "id": "gpt-4o-2024-08-06",
+  "provider": "openai",
+  "benchmark_flag": "openai/gpt-4o-2024-08-06"
+ },
+ "arms": {
+  "none": {
+   "defense_flag": null
+  },
+  "next_moca": {
+   "defense_flag": "next_moca",
+   "service": "Next Moca hosted service",
+   "service_url": "https://api.nextmoca.com",
+   "operating_point": "np-2026-10-r8",
+   "build_id": "bbf91c3e845c6cc8",
+   "build_id_check": "same build id reported at the start and at the end of the run",
+   "request_timeout_s": 10
+  }
+ },
+ "run": {
+  "dates_utc": [
+   "2026-11-10"
+  ],
+  "order": "optimize against next_moca, optimize against none, then benign and attacked benchmarks for each arm"
+ },
+ "method": [
+  "Model: gpt-4o-2024-08-06 (OpenAI) as the target agent in both arms.",
+  "Benchmark: AutoDojo (upstream commit aa458794), AgentDojo v1.2.2 banking suite; adaptive attack autodojo.",
+  "Attack optimizer: gemini-2.5-pro as analyzer and rewriter, black box (success-only feedback), 4 iterations, 5 variants; variant 0 benchmarked. Injections are optimized separately against each arm.",
+  "Population: 144 attacked tasks and 16 benign tasks per arm.",
+  "Arms: none (no defense) and next_moca (the next_moca element between the tool executor and the model).",
+  "Service: Next Moca hosted service, November 2026, build bbf91c3e845c6cc8, operating point np-2026-10-r8.",
+  "Dates: 2026-11-10 (UTC).",
+  "Scoring: AgentDojo's own utility and security checks on the banking suite; attack success is security = true."
+ ]
+}
