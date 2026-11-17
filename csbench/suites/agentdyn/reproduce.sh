@@ -82,4 +82,4 @@ BUILD_END=$(health_build)
 cd "$HERE/../../.."
 "$CSBENCH_PY" -m csbench.suites.agentdyn score --none "$RUN/runs/none" --next-moca "$RUN/runs/next_moca" \
   --out "$RUN/results/summary.json" --build-id "$BUILD_START" \
-  ${NEXT_MOCA_OPERATING_POINT:+--operating-point "$NEXT_MOCA_OPERATING_POINT"}
+  --operating-point "${NEXT_MOCA_OPERATING_POINT:-}"

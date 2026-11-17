@@ -97,7 +97,7 @@ def tiny_config():
         },
         "fork": {"repo": "https://github.com/nextmoca/tiny", "commit": "1" * 40},
         "model": {"id": "m"},
-        "arms": {"none": {}, "next_moca": {"build_id": "b"}},
+        "arms": {"none": {"pipeline_name": "m"}, "next_moca": {"build_id": "b", "pipeline_name": "m-next_moca"}},
         "method": ["one line"],
     }
 
@@ -212,7 +212,7 @@ def test_score_command_writes_a_summary_and_rows_that_check(tmp_path, monkeypatc
     fill_arm(tmp_path / "none", "m", {("user_task_0", "injection_task_0"), ("user_task_1", "injection_task_1")})
     fill_arm(tmp_path / "nm", "m-next_moca", set(), {("user_task_0", "injection_task_1")})
     out = pkg / "results" / "summary.json"
-    assert A.cli(pkg, "t", ["score", "--none", str(tmp_path / "none"), "--next-moca", str(tmp_path / "nm"), "--out", str(out), "--build-id", "b"]) == 0
+    assert A.cli(pkg, "t", ["score", "--none", str(tmp_path / "none"), "--next-moca", str(tmp_path / "nm"), "--out", str(out), "--build-id", "b", "--operating-point", "op-a"]) == 0
     s = A.load_json(out)
     assert s["arms"]["none"]["pooled"]["attack_success_k"] == 2
     assert s["arms"]["next_moca"]["pooled"]["utility_under_attack_k"] == 3
@@ -227,14 +227,14 @@ def _pkg(tmp_path):
     return pkg
 
 
-def _score(pkg, none_dir, nm_dir, build_id="b"):
-    return A.cli(pkg, "t", ["score", "--none", str(none_dir), "--next-moca", str(nm_dir), "--build-id", build_id])
+def _score(pkg, none_dir, nm_dir, build_id="b", op="op-a"):
+    return A.cli(pkg, "t", ["score", "--none", str(none_dir), "--next-moca", str(nm_dir), "--build-id", build_id, "--operating-point", op])
 
 
 def test_score_refuses_the_same_directory_for_both_arms(tmp_path):
     pkg = _pkg(tmp_path)
     fill_arm(tmp_path / "none", "m", set())
-    with pytest.raises(A.ScoreError, match="not all next_moca pipelines"):
+    with pytest.raises(A.ScoreError, match="not all next_moca pipelines|not the configured"):
         _score(pkg, tmp_path / "none", tmp_path / "none")
 
 
@@ -267,6 +267,8 @@ def test_a_fresh_summary_validates_against_its_own_run_config(tmp_path):
     A.cli(pkg, "t", ["score", "--none", str(tmp_path / "none"), "--next-moca", str(tmp_path / "nm"), "--out", str(out),
                      "--build-id", "fresh123", "--operating-point", "op-a"])
     s, cfg = A.load_json(out), A.load_json(out.with_name("run_config.json"))
+    assert all("fresh123" in line or "op-a" not in line for line in cfg["method"])
+    assert any("build fresh123, operating point op-a" in line for line in cfg["method"])
     assert s["build_id"] == cfg["arms"]["next_moca"]["build_id"] == "fresh123"
     assert cfg["arms"]["next_moca"]["operating_point"] == "op-a"
     assert s["next_moca_telemetry"]["operating_points"] == ["op-a"]
@@ -305,8 +307,35 @@ def test_a_baseline_pipeline_named_for_the_defense_is_refused(tmp_path):
     pkg = _pkg(tmp_path)
     fill_arm(tmp_path / "none", "m/next_moca_off", set())
     fill_arm(tmp_path / "nm", "m-next_moca", set())
-    with pytest.raises(A.ScoreError, match="belong to the next_moca arm"):
+    with pytest.raises(A.ScoreError, match="not the configured"):
         _score(pkg, tmp_path / "none", tmp_path / "nm")
+
+
+def test_a_different_model_in_the_defended_arm_is_refused(tmp_path):
+    pkg = _pkg(tmp_path)
+    fill_arm(tmp_path / "none", "m", set())
+    fill_arm(tmp_path / "nm", "other-model-next_moca", set())
+    with pytest.raises(A.ScoreError, match="not the configured"):
+        _score(pkg, tmp_path / "none", tmp_path / "nm")
+
+
+@pytest.mark.parametrize("record", [
+    {"decision": "applied", "reason": "applied", "operating_point": "op-a"},
+    {"request_id": "r", "decision": "kept", "reason": "applied", "operating_point": "op-a"},
+    {"request_id": "r", "decision": "applied", "reason": "applied"},
+    {},
+])
+def test_malformed_telemetry_is_refused(tmp_path, record):
+    pkg = _pkg(tmp_path)
+    fill_arm(tmp_path / "none", "m", set())
+    fill_arm(tmp_path / "nm", "m-next_moca", set(), telemetry=record or {"x": 1})
+    with pytest.raises(A.ScoreError, match="malformed next_moca telemetry"):
+        _score(pkg, tmp_path / "none", tmp_path / "nm")
+
+
+def test_score_requires_the_operating_point():
+    with pytest.raises(SystemExit):
+        A.cli(SUITES["autodojo"], "t", ["score", "--none", "a", "--next-moca", "b", "--build-id", "x"])
 
 
 def test_duplicated_jsonl_rows_are_refused():

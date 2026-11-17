@@ -202,7 +202,8 @@
  },
  "arms": {
   "none": {
-   "defense_flag": null
+   "defense_flag": null,
+   "pipeline_name": "gpt-4o-2024-08-06"
   },
   "next_moca": {
    "defense_flag": "next_moca",
@@ -211,7 +212,8 @@
    "operating_point": "np-2026-10-r8",
    "build_id": "6c0eaba7bc4aa35c",
    "build_id_check": "same build id reported at the start and at the end of the run",
-   "request_timeout_s": 10
+   "request_timeout_s": 10,
+   "pipeline_name": "gpt-4o-2024-08-06-next_moca"
   }
  },
  "run": {

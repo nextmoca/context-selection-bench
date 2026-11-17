@@ -147,7 +147,8 @@
  },
  "arms": {
   "none": {
-   "defense_flag": null
+   "defense_flag": null,
+   "pipeline_name": "gpt-4o-2024-08-06"
   },
   "next_moca": {
    "defense_flag": "next_moca",
@@ -157,7 +158,8 @@
    "operating_point_note": "An unlisted operating point of the hosted service; the label is not published, so the published arm cannot be selected by a reproduction. reproduce.sh requires NEXT_MOCA_OPERATING_POINT to name a listed operating point explicitly.",
    "build_id": "42aea840d7689d36",
    "build_id_check": "same build id reported at the start and at the end of the run",
-   "request_timeout_s": 10
+   "request_timeout_s": 10,
+   "pipeline_name": "gpt-4o-2024-08-06-next_moca"
   }
  },
  "run": {

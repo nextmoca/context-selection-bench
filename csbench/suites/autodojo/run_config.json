@@ -82,7 +82,8 @@
  },
  "arms": {
   "none": {
-   "defense_flag": null
+   "defense_flag": null,
+   "pipeline_name": "openai/gpt-4o-2024-08-06/no_defense"
   },
   "next_moca": {
    "defense_flag": "next_moca",
@@ -91,7 +92,8 @@
    "operating_point": "np-2026-10-r8",
    "build_id": "bbf91c3e845c6cc8",
    "build_id_check": "same build id reported at the start and at the end of the run",
-   "request_timeout_s": 10
+   "request_timeout_s": 10,
+   "pipeline_name": "openai/gpt-4o-2024-08-06/next_moca"
   }
  },
  "run": {

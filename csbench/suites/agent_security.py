@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import glob
 import json
+from datetime import datetime, timezone
 import os
 import re
 from dataclasses import asdict, dataclass
@@ -219,6 +220,13 @@ def scan_arm_dir(arm_dir: str | os.PathLike[str], arm: str, attack: str, suites:
             records = _telemetry(d)
             telemetry += int(bool(records))
             for t in records:
+                if not (
+                    isinstance(t.get("request_id"), str) and t["request_id"]
+                    and t.get("decision") in ("applied", "passthrough")
+                    and isinstance(t.get("reason"), str)
+                    and isinstance(t.get("operating_point"), str) and t["operating_point"]
+                ):
+                    raise ScoreError(f"{path}: malformed next_moca telemetry record")
                 tel["batches"] += 1
                 tel["applied"] += int(t.get("decision") == "applied")
                 tel["passthrough"] += int(t.get("decision") == "passthrough")
@@ -248,12 +256,14 @@ def _is_defended_pipeline(name: str) -> bool:
     return name.endswith("-" + ARM_NEXT_MOCA) or name.endswith("/" + ARM_NEXT_MOCA)
 
 
-def check_arm_identity(scan: DirScan, arm: str) -> None:
+def check_arm_identity(scan: DirScan, arm: str, pipeline_name: Optional[str] = None) -> None:
     """The directory given for an arm must hold that arm's rows: the defended
     arm's pipeline is named for the defense and its rows carry the element's
     telemetry; the undefended arm has neither."""
     if len(scan.pipelines) != 1:
         raise ScoreError(f"{arm}: expected one pipeline, found {sorted(scan.pipelines)}")
+    if pipeline_name is not None and scan.pipelines != {pipeline_name}:
+        raise ScoreError(f"{arm}: pipeline {sorted(scan.pipelines)} is not the configured {pipeline_name!r}")
     named = [p for p in scan.pipelines if ARM_NEXT_MOCA in p]
     if arm == ARM_NEXT_MOCA:
         if not all(_is_defended_pipeline(p) for p in scan.pipelines):
@@ -429,6 +439,9 @@ def validate_config(config: Mapping[str, Any]) -> None:
     arms = config.get("arms", {})
     if set(arms) != set(ARMS):
         problems.append(f"arms must be exactly {list(ARMS)}, got {sorted(arms)}")
+    for arm_name in ARMS:
+        if not arms.get(arm_name, {}).get("pipeline_name"):
+            problems.append(f"arms.{arm_name}.pipeline_name is required (the benchmark's pipeline name for that arm)")
     np_arm = arms.get(ARM_NEXT_MOCA, {})
     if not np_arm.get("build_id"):
         problems.append("arms.next_moca.build_id is required (the server-reported build id)")
@@ -604,8 +617,17 @@ def fresh_run_config(config: Mapping[str, Any], build_id: str, operating_point: 
     np_arm["build_id"] = build_id
     np_arm["operating_point"] = operating_point
     np_arm.pop("operating_point_note", None)
-    out["run"] = {"reproduction_of": config["fork"]["commit"]}
-    out["method"] = list(config["method"]) + ["This is a reproduction run; the service fields above are the ones it used."]
+    out["run"] = {
+        "reproduction_of": config["fork"]["commit"],
+        "scored_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    # The pinned method lines describe the published run; a reproduction gets its own.
+    out["method"] = [
+        f"Reproduction of the pinned {config['benchmark']['name']} configuration from fork commit {config['fork']['commit']}.",
+        f"Model: {config['model']['id']}; attack: {config['benchmark']['attack']}; "
+        f"suites: {', '.join(config['benchmark']['suites'])}.",
+        f"Service: Next Moca hosted service, build {build_id}, operating point {operating_point}.",
+    ]
     return out
 
 
@@ -636,6 +658,7 @@ def cli(package_dir: Path, prog: str, argv: Optional[list[str]] = None) -> int:
     )
     sp.add_argument(
         "--operating-point",
+        required=True,
         help="the operating point the run requested; every telemetry record must carry it",
     )
     pp = sub.add_parser("pin", help="print one run_config.json value by dotted path (for reproduce.sh)")
@@ -670,11 +693,11 @@ def cli(package_dir: Path, prog: str, argv: Optional[list[str]] = None) -> int:
         errors = sum(r.error for r in scan.rows)
         if errors:
             raise ScoreError(f"{arm}: {errors} rows carry a provider error; re-run them before scoring")
-        check_arm_identity(scan, arm)
+        check_arm_identity(scan, arm, config["arms"][arm]["pipeline_name"])
     if not args.build_id.strip():
         raise ScoreError("--build-id is empty")
     observed = scans[ARM_NEXT_MOCA].telemetry["operating_points"]
-    if args.operating_point and observed != [args.operating_point]:
+    if observed != [args.operating_point]:
         raise ScoreError(f"telemetry operating points {observed} differ from the requested {args.operating_point!r}")
     rows = scans[ARM_NONE].rows + scans[ARM_NEXT_MOCA].rows
     run_config = fresh_run_config(config, args.build_id, args.operating_point)
